@@ -258,6 +258,16 @@ function seedPautas(){
   out.push({id:"p-rampla-15", nombre:"Mantención rampla c/15.000 km (OT 7738)", tipo:"Semirremolque", activos:[], tareas:[{id:"t1", nombre:"Mantención rampla c/15.000 km", cadaKm:15000, items:R.map(x=>({...x}))}]});
   return out;
 }
+/* Parejas fijas tracto -> semirremolque (archivo "equipos detalle"). Se cargan una vez; después se editan en la ficha del equipo. */
+const PAREJAS = {"5028":"616","5032":"8983","5033":"8991","9622":"4192","5360":"4193","5607":"411","5579":"4326","5113":"4330","5606":"8976","9650":"8998","9694":"8982","9737":"8675","9760":"4446","9804":"8743","9897":"8888","5605":"8041","5253":"4219","5252":"4274","5296":"4387","5316":"4388","9816":"8254","5359":"4466","5272":"4566","9612":"293","9854":"292","5016":"8162","9840":"8902","5361":"8279","5100":"4037","9620":"8007","9494":"8215","9902":"8620","9850":"8133"};
+function aplicarParejas(s){
+  Object.keys(PAREJAS).forEach(t => {
+    const a = s.camiones.find(c => String(c.pat) === t), b = s.camiones.find(c => String(c.pat) === PAREJAS[t]);
+    if (!a || !b) return;
+    if (a.par === undefined) a.par = b.pat;
+    if (b.par === undefined) b.par = a.pat;
+  });
+}
 const EMPTY = () => ({camiones:[], ots:[], fallas:[], gastos:[], pautas:seedPautas(), seq:1, seedV:4});
 let D = load();
 function migrar(s){
@@ -277,6 +287,7 @@ function migrar(s){
       sp.tareas.forEach(st => { const t = p.tareas.find(x => x.nombre === st.nombre); if (t && st.items.length && (!t.items.length || ant.includes(p.id + "/" + t.nombre))) t.items = st.items; }); });
     s.seedV = 4;
   }
+  aplicarParejas(s);
   return s;
 }
 function load(){ return EMPTY(); }   /* los datos reales llegan del servidor en iniciar() */
@@ -353,6 +364,21 @@ const fclp = n => "$"+Math.round(n||0).toLocaleString("es-CL");
 const fdate = s => { if(!s) return "—"; const [y,m,d] = s.split("-"); return `${+d}/${+m}/${y}`; };
 const MESES = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
 const camion = p => D.camiones.find(c => c.pat === p);
+const parDe = c => c && c.par ? camion(c.par) : null;
+const esTractoC = c => /tracto/i.test(c.tipo || "") || PAREJAS[c.pat] !== undefined;
+const ST_PREV_TXT = {vencido:"preventivo vencido", proximo:"preventivo próximo", ok:"al día", sin:"sin plan"};
+/** Texto de la pareja fija: "Semi 616 · 123.000 km · al día" (tracto <-> semi) */
+function parInfo(c){
+  if (!c || !c.par) return "";
+  const q = parDe(c), rol = esTractoC(c) ? "Semi" : "Tracto";
+  return q ? `${rol} ${q.pat} · ${fkm(q.km)} · ${ST_PREV_TXT[prev(q).st]}` : `${rol} ${c.par}`;
+}
+function setPar(c, nuevo){
+  if ((c.par || "") === nuevo) return;
+  const old = parDe(c); if (old && old.par === c.pat) old.par = "";
+  if (nuevo){ const q = camion(nuevo); if (q){ const oq = parDe(q); if (oq && oq.par === q.pat) oq.par = ""; q.par = c.pat; c.par = nuevo; return; } }
+  c.par = "";
+}
 
 const TIPOS_EQ = ["","Tractocamión","Semirremolque","Camión","Estanque","Camioneta"];
 const ESTADOS_CAM = {operativo:["Operativo","green"], taller:["En taller","amber"], detenido:["Detenido","red"]};
@@ -450,6 +476,7 @@ function fCamion(c){
     {k:"marca", l:"Marca / modelo"},
     {k:"base", l:"Base", t:"sel", opts:["","Puerto Montt","Chacabuco","Punta Arenas"]},
     {k:"tipo", l:"Tipo de equipo", t:"sel", opts:TIPOS_EQ},
+    {k:"par", l:"Pareja fija (tracto ↔ semirremolque)", t:"sel", opts:["", ...D.camiones.filter(k => !c || k.pat !== c.pat).map(k => k.pat).sort()]},
     {k:"km", l:"Kilometraje actual", t:"number"},
     {k:"estado", l:"Estado", t:"sel", opts:Object.entries(ESTADOS_CAM).map(([k,v])=>[k,v[0]]), def:"operativo"},
     {k:"ultFecha", l:"Fecha última mantención", t:"date"},
@@ -458,10 +485,16 @@ function fCamion(c){
     {k:"intDias", l:"Mantener cada (días)", t:"number", def:90},
   ], c || {}, v => {
     v.pat = v.pat.toUpperCase().replace(/\s+/g,"");
-    if (isNew){ if (camion(v.pat)){ alert("Esa patente ya existe."); return; } D.camiones.push(v); }
+    const nuevaPar = v.par || ""; delete v.par;
+    if (isNew){ if (camion(v.pat)){ alert("Esa patente ya existe."); return; } D.camiones.push(v); setPar(v, nuevaPar); }
     else { if (v.pat !== c.pat){ if (camion(v.pat)){ alert("Esa patente ya existe."); return; }
-        [...D.ots, ...D.fallas, ...D.gastos].forEach(r => { if (r.pat === c.pat) r.pat = v.pat; }); }
-      Object.assign(c, v); }
+        [...D.ots, ...D.fallas, ...D.gastos].forEach(r => { if (r.pat === c.pat) r.pat = v.pat; });
+        D.camiones.forEach(k => { if (k.par === c.pat) k.par = v.pat; }); }
+      const kmAnt = c.km;
+      Object.assign(c, v);
+      /* el km del semi sigue al del tracto */
+      if (esTractoC(c) && kmAnt != null && c.km != null && c.km > kmAnt){ const q = parDe(c); if (q && q.km != null){ q.km += c.km - kmAnt; q.kmFecha = hoy(); } }
+      setPar(c, nuevaPar); }
   });
 }
 function fOT(o, pre){
@@ -598,7 +631,7 @@ function vCamiones(){
     return `<div class="row ${c.estado==="detenido"?"flag":c.estado==="taller"?"warn":""}">
       <div><span class="plate">${esc(c.pat)}</span></div>
       <div class="what"><div class="d">${esc(c.marca||"Sin modelo")} ${tag(st[0], st[1])}${p.st==="vencido"?" "+tag("Preventivo vencido","red"):p.st==="proximo"?" "+tag("Preventivo próximo","amber"):""}</div>
-        <div class="m"><span>${fkm(c.km)}${c.kmFecha?` <small>(al ${fdate(c.kmFecha)})</small>`:""}</span>${c.base?`<span>${esc(c.base)}</span>`:""}<span>Última mantención ${fdate(c.ultFecha)}${c.ultKm!=null?` (${fkm(c.ultKm)})`:""}</span><span>Próxima ${p.nk!=null?fkm(p.nk):""}${p.nk!=null&&p.nd?" o ":""}${p.nd?fdate(p.nd):""}${p.nk==null&&!p.nd?"—":""}</span><span>${ab} OT abierta${ab===1?"":"s"} · ${ots.length} en historial</span>${(c.pautaIds||[]).length?`<span>Pautas: ${esc((c.pautaIds||[]).map(id => (pautaPorId(id)||{nombre:id}).nombre.replace(/^FLOTA\s*-?\s*(PLAN|PAUTA)\s+(DE\s+)?MANTEN[A-Z]+\s+/i,"")).join(" + "))}</span>`:""}</div></div>
+        <div class="m"><span>${fkm(c.km)}${c.kmFecha?` <small>(al ${fdate(c.kmFecha)})</small>`:""}</span>${c.base?`<span>${esc(c.base)}</span>`:""}${c.par?`<span><b>${esc(parInfo(c))}</b></span>`:""}<span>Última mantención ${fdate(c.ultFecha)}${c.ultKm!=null?` (${fkm(c.ultKm)})`:""}</span><span>Próxima ${p.nk!=null?fkm(p.nk):""}${p.nk!=null&&p.nd?" o ":""}${p.nd?fdate(p.nd):""}${p.nk==null&&!p.nd?"—":""}</span><span>${ab} OT abierta${ab===1?"":"s"} · ${ots.length} en historial</span>${(c.pautaIds||[]).length?`<span>Pautas: ${esc((c.pautaIds||[]).map(id => (pautaPorId(id)||{nombre:id}).nombre.replace(/^FLOTA\s*-?\s*(PLAN|PAUTA)\s+(DE\s+)?MANTEN[A-Z]+\s+/i,"")).join(" + "))}</span>`:""}</div></div>
       <div class="acts"><button class="btn sm" data-act="hist" data-id="${esc(c.pat)}">Historial</button><button class="btn sm" data-act="edit-cam" data-id="${esc(c.pat)}">Editar</button><button class="btn sm danger" data-act="del-cam" data-id="${esc(c.pat)}">Eliminar</button></div></div>`;
   }).join("");
 }
@@ -640,7 +673,7 @@ function vPrev(){
     return `<div class="row ${p.st==="vencido"?"flag":p.st==="proximo"?"warn":""}">
       <div><span class="plate">${esc(c.pat)}</span></div>
       <div class="what"><div class="d">${tag(lbl[0],lbl[1])} ${esc(c.marca||c.tipo||"")}</div>
-        <div class="m">${p.tareas.length ? lineas : `${p.kmR!=null?`<span>${p.kmR<=0?`Pasado por ${fkm(-p.kmR)}`:`Faltan ${fkm(p.kmR)}`} (próx. ${fkm(p.nk)})</span>`:""}${p.dR!=null?`<span>${p.dR<0?`Vencido hace ${-p.dR} días`:`Faltan ${p.dR} días`} (${fdate(p.nd)})</span>`:""}`}${p.st==="sin"?`<span>${(c.pautaIds||[]).length?"Registra la última mantención de cada tarea (botón de la derecha)":"Asigna una pauta en Pautas o define el intervalo en Editar"}</span>`:""}${sinreg&&p.tareas.length?`<span>${sinreg} tarea${sinreg===1?"":"s"} sin registro</span>`:""}<span>Km actual ${fkm(c.km)}</span></div></div>
+        <div class="m">${p.tareas.length ? lineas : `${p.kmR!=null?`<span>${p.kmR<=0?`Pasado por ${fkm(-p.kmR)}`:`Faltan ${fkm(p.kmR)}`} (próx. ${fkm(p.nk)})</span>`:""}${p.dR!=null?`<span>${p.dR<0?`Vencido hace ${-p.dR} días`:`Faltan ${p.dR} días`} (${fdate(p.nd)})</span>`:""}`}${p.st==="sin"?`<span>${(c.pautaIds||[]).length?"Registra la última mantención de cada tarea (botón de la derecha)":"Asigna una pauta en Pautas o define el intervalo en Editar"}</span>`:""}${sinreg&&p.tareas.length?`<span>${sinreg} tarea${sinreg===1?"":"s"} sin registro</span>`:""}<span>Km actual ${fkm(c.km)}</span>${c.par?`<span><b>${esc(parInfo(c))}</b></span>`:""}</div></div>
       <div class="acts">${due.length?`<button class="btn sm pri" data-act="gen-ot" data-id="${esc(c.pat)}">Generar OT${due.length>1?` (${due.length} tareas)`:""}</button>`:""}<button class="btn sm" data-act="hecha" data-id="${esc(c.pat)}">Registrar mantención hecha</button></div></div>`;
   }).join("");
 }
@@ -890,7 +923,7 @@ function revisarAlertasMant(){
 function mostrarAlertasMant(lista){
   const corto = n => String(n).replace(/^MANTENIMIENTO PROGRAMADO\s*/i,"Programado ").replace(/^MANTENCIÓN\s*/i,"");
   const venc = lista.filter(x => x.st === "vencido"), prox = lista.filter(x => x.st === "proximo");
-  const fila = x => `<li><b>${esc(x.pat)}</b> · ${esc(corto(x.tarea))}${x.kmR==null?"":x.kmR<=0?` — pasada por ${fkm(-x.kmR)}`:` — faltan ${fkm(x.kmR)}`}</li>`;
+  const fila = x => { const cc = camion(x.pat); return `<li><b>${esc(x.pat)}</b> · ${esc(corto(x.tarea))}${x.kmR==null?"":x.kmR<=0?` — pasada por ${fkm(-x.kmR)}`:` — faltan ${fkm(x.kmR)}`}${cc&&cc.par?`<br><small>con su pareja: ${esc(parInfo(cc))}</small>`:""}</li>`; };
   const bloque = (arr, cls, txt) => arr.length ? `<div style="margin-top:10px"><span class="tag ${cls}">${txt} · ${arr.length}</span><ul style="margin:6px 0 0;padding-left:18px;font-size:14px;display:grid;gap:3px">${arr.slice(0,14).map(fila).join("")}${arr.length>14?`<li>… y ${arr.length-14} más</li>`:""}</ul></div>` : "";
   dlg.style.width = "min(560px,96vw)";
   dlg.innerHTML = `<form><h2>⚠ Equipos listos para mantenimiento</h2><div class="sub">Con los km actualizados, según las pautas, estos equipos ya llegaron o están por llegar a su mantención (cambios desde tu última visita).</div>
