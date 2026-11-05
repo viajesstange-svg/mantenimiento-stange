@@ -665,24 +665,29 @@ function vPrev(){
   const f = S.f.prev;
   const all = D.camiones.map(c => ({c, p:prev(c)}));
   const n = k => all.filter(x => x.p.st === k).length;
-  const list = all.filter(x => (f==="todos" || (f==="pendientes" ? (x.p.st==="vencido"||x.p.st==="proximo") : x.p.st===f)) && (match(x.c.pat, x.c.marca) || (S.q.trim() && x.c.par && match(x.c.par))));
+  const cumple = st => f==="todos" || (f==="pendientes" ? (st==="vencido"||st==="proximo") : st===f);
+  const stPar = c => { const q = parDe(c); return q ? prev(q).st : null; };
+  const list = all.filter(x => (cumple(x.p.st) || (f!=="todos" && f!=="ok" && stPar(x.c) && cumple(stPar(x.c)))) && (match(x.c.pat, x.c.marca) || (S.q.trim() && x.c.par && match(x.c.par))));
   const ord = {vencido:0, proximo:1, ok:2, sin:3};
   const h = `<div class="chips">${[["pendientes","Pendientes",n("vencido")+n("proximo")],["vencido","Vencidos",n("vencido")],["proximo","Próximos",n("proximo")],["ok","Al día",n("ok")],["todos","Todos",all.length]].map(([k,l,c]) => `<button class="chip" data-act="chip" data-key="prev" data-v="${k}" aria-pressed="${f===k}">${l} · ${c}</button>`).join("")}</div>`;
   if (!all.length) return h + emptyMsg("Agrega camiones con su última mantención e intervalo para ver el preventivo.", demoBtns);
   if (!list.length) return h + emptyMsg(f==="pendientes" && !S.q.trim() ? "Sin mantenciones pendientes: todo está al día." : "Ningún camión coincide.");
   const barra = S.sel.size ? `<div class="chips" style="justify-content:space-between;margin-top:10px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--surface-2)"><b>${S.sel.size} equipo${S.sel.size===1?"":"s"} seleccionado${S.sel.size===1?"":"s"}: ${esc([...S.sel].join(" + "))}</b><span style="display:flex;gap:8px"><button class="btn pri" data-act="gen-sel">Generar una sola OT</button><button class="btn" data-act="sel-clear">Limpiar</button></span></div>` : `<div class="sub" style="margin-top:8px">Marca con el check los equipos que irán juntos (por ejemplo un tracto y su semi) y genera una sola OT.</div>`;
-  return h + barra + list.sort((a,b) => ord[a.p.st]-ord[b.p.st] || (a.p.kmR??1e9)-(b.p.kmR??1e9)).map(({c,p}) => {
+  const ordenado = list.sort((a,b) => ord[a.p.st]-ord[b.p.st] || (a.p.kmR??1e9)-(b.p.kmR??1e9)), vistos = new Set(), grupos = [];
+  ordenado.forEach(x => { if (vistos.has(x.c.pat)) return; const qd = parDe(x.c), q = qd && ordenado.find(y => y.c === qd);
+    const par = q && !vistos.has(q.c.pat) ? (esTractoC(x.c) ? [x, q] : [q, x]) : [x]; par.forEach(y => { vistos.add(y.c.pat); grupos.push(y); }); });
+  return h + barra + grupos.map(({c,p}) => {
     const lbl = {vencido:["Vencido","red"],proximo:["Próximo","amber"],ok:["Al día","green"],sin:["Sin plan","gray"]}[p.st];
     const due = p.tareas.filter(t => t.st === "vencido" || t.st === "proximo");
-    const trq = !esTractoC(c) ? parDe(c) : null, arr = !!(trq && esTractoC(trq) && ["vencido","proximo"].includes(prev(trq).st));
+    const trq = parDe(c), arr = !!(trq && !due.length && ["vencido","proximo"].includes(prev(trq).st));
     const sinreg = p.tareas.filter(t => t.st === "sinreg").length;
     const corto = n => n.replace(/^MANTENIMIENTO PROGRAMADO\s*/i,"Programado ").replace(/^MANTENCIÓN\s*/i,"");
     const lineas = p.tareas.filter(t => t.st !== "sinreg").sort((a,b) => a.kmR - b.kmR).slice(0,4).map(t => `<span>${tag(t.st==="vencido"?"Vencida":t.st==="proximo"?"Próxima":"Al día", t.st==="vencido"?"red":t.st==="proximo"?"amber":"green")} ${esc(corto(t.tarea.nombre))}: ${t.kmR<=0?`pasada por ${fkm(-t.kmR)}`:`faltan ${fkm(t.kmR)}`}</span>`).join("");
     return `<div class="row ${p.st==="vencido"?"flag":p.st==="proximo"?"warn":""}">
       <div><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" data-act="sel" data-id="${esc(c.pat)}"${S.sel.has(c.pat)?" checked":""} style="width:20px;height:20px"><span class="plate">${esc(c.pat)}</span></label></div>
-      <div class="what"><div class="d">${tag(lbl[0],lbl[1])} ${esc(c.marca||c.tipo||"")}${arr?" "+tag("Se arrastra con el tracto "+trq.pat,"amber"):""}</div>
+      <div class="what"><div class="d">${tag(lbl[0],lbl[1])} ${esc(c.marca||c.tipo||"")}${arr?" "+tag("Se arrastra con el "+(esTractoC(trq)?"tracto ":"semi ")+trq.pat,"amber"):""}</div>
         <div class="m">${p.tareas.length ? lineas : `${p.kmR!=null?`<span>${p.kmR<=0?`Pasado por ${fkm(-p.kmR)}`:`Faltan ${fkm(p.kmR)}`} (próx. ${fkm(p.nk)})</span>`:""}${p.dR!=null?`<span>${p.dR<0?`Vencido hace ${-p.dR} días`:`Faltan ${p.dR} días`} (${fdate(p.nd)})</span>`:""}`}${p.st==="sin"?`<span>${(c.pautaIds||[]).length?"Registra la última mantención de cada tarea (botón de la derecha)":"Asigna una pauta en Pautas o define el intervalo en Editar"}</span>`:""}${sinreg&&p.tareas.length?`<span>${sinreg} tarea${sinreg===1?"":"s"} sin registro</span>`:""}<span>Km actual ${fkm(c.km)}</span>${c.par?`<span><b>${esTractoC(c)?"Semi":"Tracto"} ${esc(c.par)}</b> <small>(aparte, con su propia pauta y OT)</small></span>`:""}</div></div>
-      <div class="acts">${due.length?`<button class="btn sm pri" data-act="gen-ot" data-id="${esc(c.pat)}">Generar OT${due.length>1?` (${due.length} tareas)`:""}</button>`:arr?`<button class="btn sm pri" data-act="gen-ot-arr" data-id="${esc(c.pat)}">Generar OT (con el tracto ${esc(trq.pat)})</button>`:""}<button class="btn sm" data-act="hecha" data-id="${esc(c.pat)}">Registrar mantención hecha</button></div></div>`;
+      <div class="acts">${due.length?`<button class="btn sm pri" data-act="gen-ot" data-id="${esc(c.pat)}">Generar OT${due.length>1?` (${due.length} tareas)`:""}</button>`:arr?`<button class="btn sm pri" data-act="gen-ot-arr" data-id="${esc(c.pat)}">Generar OT (con ${esc(trq.pat)})</button>`:""}<button class="btn sm" data-act="hecha" data-id="${esc(c.pat)}">Registrar mantención hecha</button></div></div>`;
   }).join("");
 }
 
@@ -1003,7 +1008,7 @@ document.addEventListener("click", e => {
     if (o.items && o.items.some(i => i.tipo !== "texto" && !i.res) && !confirm("Esta OT tiene ítems del checklist sin responder. ¿Cerrar igual?")) return;
     o.estado = "cerrada"; o.cerrada = hoy(); alCerrar(o); save(); render(); }
   else if (a === "checklist"){ const o = byId(D.ots, id); if (o && otAbierta(o)) fChecklist(o); }
-  else if (a === "gen-ot" || a === "gen-ot-arr"){ const c = camion(id), q = parDe(c); generarOTs(q && esTractoC(c) ? [id, q.pat] : q && esTractoC(q) && a === "gen-ot-arr" ? [q.pat, id] : [id]); }
+  else if (a === "gen-ot" || a === "gen-ot-arr"){ const c = camion(id), q = parDe(c); generarOTs(q ? (esTractoC(c) ? [id, q.pat] : [q.pat, id]) : [id]); }
   else if (a === "sel"){ const c = camion(id); if (b.checked){ S.sel.add(id); const q = parDe(c); if (q) S.sel.add(q.pat); } else S.sel.delete(id); render(); }
   else if (a === "gen-sel") generarOTs([...S.sel]);
   else if (a === "sel-clear"){ S.sel.clear(); render(); }
