@@ -12,13 +12,13 @@
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;font-variant-numeric:tabular-nums}
 button,input,select,textarea{font:inherit;color:inherit}
-header{background:var(--surface);border-bottom:1px solid var(--line)}
+header{background:var(--surface);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:40}
 .wrap{max-width:1100px;margin:0 auto;padding:16px}
 .brand{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
 .brand b{font-size:20px;letter-spacing:.08em;color:var(--navy)}
 h1{margin:0;font-size:20px}
 .sub{color:var(--muted);font-size:13px;margin-top:2px}
-.bar{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-bottom:14px}
+.bar{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-bottom:6px;padding:10px 0;position:sticky;top:var(--hh,0px);z-index:30;background:var(--bg)}
 .tabs{display:flex;background:var(--surface-2);border-radius:10px;padding:4px;gap:4px;overflow-x:auto;max-width:100%}
 .tab{border:0;background:transparent;border-radius:7px;padding:8px 14px;font-weight:600;cursor:pointer;white-space:nowrap;display:inline-flex;gap:8px;align-items:center}
 .tab .c{font-size:12px;background:var(--line);border-radius:999px;padding:0 7px}
@@ -1006,6 +1006,7 @@ function render(){
     document.getElementById("tabs").innerHTML = TABS.map(([k,l]) => `<button class="tab" role="tab" data-act="tab" data-tab="${k}" aria-selected="${S.tab===k}">${l}${k==="tareas"&&ab?` <span class="c">${ab}</span>`:""}${k==="solicitudes"&&D.fallas.some(x=>x.ext&&x.nueva)?` <span class="c">${D.fallas.filter(x=>x.ext&&x.nueva).length}</span>`:""}</button>`).join("");
     document.getElementById("q").style.display = S.tab === "resumen" ? "none" : "";
     document.querySelectorAll(".wrap").forEach(w => { w.style.maxWidth = S.tab === "tareas" ? "1900px" : ""; });
+    { const hd = document.querySelector("header"); if (hd && hd.offsetHeight) document.documentElement.style.setProperty("--hh", hd.offsetHeight + "px"); }
     document.getElementById("view").innerHTML = {resumen:vResumen, camiones:vCamiones, tareas:vTareas, solicitudes:() => vFallas(true), pautas:vPautas, fallas:() => vFallas(false), costos:vCostos}[S.tab]();
   } finally { D = full; }
   revisarAlertasMant();
