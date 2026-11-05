@@ -671,14 +671,15 @@ function vPrev(){
   return h + list.sort((a,b) => ord[a.p.st]-ord[b.p.st] || (a.p.kmR??1e9)-(b.p.kmR??1e9)).map(({c,p}) => {
     const lbl = {vencido:["Vencido","red"],proximo:["Próximo","amber"],ok:["Al día","green"],sin:["Sin plan","gray"]}[p.st];
     const due = p.tareas.filter(t => t.st === "vencido" || t.st === "proximo");
+    const trq = !esTractoC(c) ? parDe(c) : null, arr = !!(trq && esTractoC(trq) && ["vencido","proximo"].includes(prev(trq).st));
     const sinreg = p.tareas.filter(t => t.st === "sinreg").length;
     const corto = n => n.replace(/^MANTENIMIENTO PROGRAMADO\s*/i,"Programado ").replace(/^MANTENCIÓN\s*/i,"");
     const lineas = p.tareas.filter(t => t.st !== "sinreg").sort((a,b) => a.kmR - b.kmR).slice(0,4).map(t => `<span>${tag(t.st==="vencido"?"Vencida":t.st==="proximo"?"Próxima":"Al día", t.st==="vencido"?"red":t.st==="proximo"?"amber":"green")} ${esc(corto(t.tarea.nombre))}: ${t.kmR<=0?`pasada por ${fkm(-t.kmR)}`:`faltan ${fkm(t.kmR)}`}</span>`).join("");
     return `<div class="row ${p.st==="vencido"?"flag":p.st==="proximo"?"warn":""}">
       <div><span class="plate">${esc(c.pat)}</span></div>
-      <div class="what"><div class="d">${tag(lbl[0],lbl[1])} ${esc(c.marca||c.tipo||"")}</div>
+      <div class="what"><div class="d">${tag(lbl[0],lbl[1])} ${esc(c.marca||c.tipo||"")}${arr?" "+tag("Se arrastra con el tracto "+trq.pat,"amber"):""}</div>
         <div class="m">${p.tareas.length ? lineas : `${p.kmR!=null?`<span>${p.kmR<=0?`Pasado por ${fkm(-p.kmR)}`:`Faltan ${fkm(p.kmR)}`} (próx. ${fkm(p.nk)})</span>`:""}${p.dR!=null?`<span>${p.dR<0?`Vencido hace ${-p.dR} días`:`Faltan ${p.dR} días`} (${fdate(p.nd)})</span>`:""}`}${p.st==="sin"?`<span>${(c.pautaIds||[]).length?"Registra la última mantención de cada tarea (botón de la derecha)":"Asigna una pauta en Pautas o define el intervalo en Editar"}</span>`:""}${sinreg&&p.tareas.length?`<span>${sinreg} tarea${sinreg===1?"":"s"} sin registro</span>`:""}<span>Km actual ${fkm(c.km)}</span>${c.par?`<span><b>${esTractoC(c)?"Semi":"Tracto"} ${esc(c.par)}</b> <small>(aparte, con su propia pauta y OT)</small></span>`:""}</div></div>
-      <div class="acts">${due.length?`<button class="btn sm pri" data-act="gen-ot" data-id="${esc(c.pat)}">Generar OT${due.length>1?` (${due.length} tareas)`:""}</button>`:""}<button class="btn sm" data-act="hecha" data-id="${esc(c.pat)}">Registrar mantención hecha</button></div></div>`;
+      <div class="acts">${due.length?`<button class="btn sm pri" data-act="gen-ot" data-id="${esc(c.pat)}">Generar OT${due.length>1?` (${due.length} tareas)`:""}</button>`:arr?`<button class="btn sm pri" data-act="gen-ot-arr" data-id="${esc(c.pat)}">Generar OT (con el tracto ${esc(trq.pat)})</button>`:""}<button class="btn sm" data-act="hecha" data-id="${esc(c.pat)}">Registrar mantención hecha</button></div></div>`;
   }).join("");
 }
 
@@ -782,19 +783,33 @@ function itemsPara(t){
   const n = Math.max(1, Math.round(t.nk / t.tarea.cadaKm)), nn = ((n - 1) % maxIt) + 1;
   return its.filter(i => !i.it || i.it.includes(nn));
 }
-function genOT(c){
-  const due = prev(c).tareas.filter(t => t.st === "vencido" || t.st === "proximo");
-  if (!due.length) return;
+/** Crea la OT preventiva de un equipo con SU pauta. porTracto: el semi se arrastra aunque aun no le toque por su propio km. */
+function crearOT(c, porTracto){
+  const pv = prev(c);
+  let due = pv.tareas.filter(t => t.st === "vencido" || t.st === "proximo");
+  if (!due.length && porTracto){
+    const r = pv.tareas.filter(t => t.st !== "sinreg").sort((x,y) => x.kmR - y.kmR)[0] || pv.tareas.find(t => t.primaria) || pv.tareas[0];
+    if (r) due = [r];
+    else { alert(`${c.pat} no tiene una pauta asignada: asígnala en Pautas para generar su OT.`); return false; }
+  }
+  if (!due.length) return false;
   const keys = due.map(t => t.key);
   const ya = D.ots.find(o => o.pat === c.pat && otAbierta(o) && (o.keys||[]).some(k => keys.includes(k)));
-  if (ya){ alert(`Ya hay una OT abierta con alguna de estas tareas para ${c.pat} (OT #${ya.id}).`); return; }
+  if (ya){ alert(`Ya hay una OT abierta con alguna de estas tareas para ${c.pat} (OT #${ya.id}).`); return false; }
   const items = [];
   due.forEach(t => { const g = grupoDe(t.plan, t.tarea);
     const its = itemsPara(t);
     if (its.length) its.forEach(i => items.push({grupo:g, sis:i.sis, desc:i.desc, tipo:i.tipo, res:null}));
     else items.push({grupo:g, sis:"GENERAL", desc:"Realizar "+t.tarea.nombre+" (checklist aún no cargado en el plan)", tipo:"sino", res:null}); });
+  const q = parDe(c);
   const id = nid();
-  D.ots.push({id, pat:c.pat, tipo:"preventivo", desc:due.map(t => t.tarea.nombre).join(" + "), prioridad:due.some(t => t.st==="vencido") ? "Alta" : "Media", resp:"", estado:"abierta", creada:hoy(), vence:addDays(hoy(),3), cerrada:null, costo:null, keys, kmOT:c.km, notas:"", items});
+  D.ots.push({id, pat:c.pat, tipo:"preventivo", desc:due.map(t => t.tarea.nombre).join(" + "), prioridad:due.some(t => t.st==="vencido") ? "Alta" : "Media", resp:"", estado:"abierta", creada:hoy(), vence:addDays(hoy(),3), cerrada:null, costo:null, keys, kmOT:c.km, notas: porTracto && q ? `Arrastrada por la mantención del tracto ${q.pat}` : "", items});
+  return true;
+}
+function genOT(c){
+  if (!crearOT(c, false)) return;
+  const q = parDe(c);
+  if (q && esTractoC(c) && !esTractoC(q) && confirm(`Se creó la OT del tracto ${c.pat}.\n\n¿Crear también la OT de su semirremolque ${q.pat}, con su propia pauta?`)) crearOT(q, true);
   save(); S.f.ots = "abiertas"; go("ots");
 }
 function fChecklist(o){
@@ -930,7 +945,7 @@ function mostrarAlertasMant(lista){
   const fila = x => { const cc = camion(x.pat); let extra = "";
     if (cc && cc.par){ const q = parDe(cc), rol = esTractoC(cc) ? "Semi" : "Tracto";
       if (q){ const pq = prev(q), ts = pq.tareas.filter(t => t.st !== "sinreg").sort((p,r) => p.kmR - r.kmR), t = ts[0];
-        extra = `<div style="margin-left:6px;color:var(--muted,#667)">↳ ${rol} <b>${esc(q.pat)}</b> (su propia pauta y OT): ${t ? esc(corto(t.tarea.nombre)) + (t.kmR<=0 ? ` — pasada por ${fkm(-t.kmR)}` : ` — faltan ${fkm(t.kmR)}`) : ST_PREV_TXT[pq.st]}</div>`; } }
+        extra = `<div style="margin-left:6px;color:var(--muted,#667)">↳ ${rol} <b>${esc(q.pat)}</b> se arrastra con el tracto (su propia pauta y OT): ${t ? esc(corto(t.tarea.nombre)) + (t.kmR<=0 ? ` — pasada por ${fkm(-t.kmR)}` : ` — faltan ${fkm(t.kmR)}`) : ST_PREV_TXT[pq.st]}</div>`; } }
     return `<li><b>${esc(x.pat)}</b> · ${esc(corto(x.tarea))}${x.kmR==null?"":x.kmR<=0?` — pasada por ${fkm(-x.kmR)}`:` — faltan ${fkm(x.kmR)}`}${extra}</li>`; };
   const bloque = (arr, cls, txt) => arr.length ? `<div style="margin-top:10px"><span class="tag ${cls}">${txt} · ${arr.length}</span><ul style="margin:6px 0 0;padding-left:18px;font-size:14px;display:grid;gap:3px">${arr.slice(0,14).map(fila).join("")}${arr.length>14?`<li>… y ${arr.length-14} más</li>`:""}</ul></div>` : "";
   dlg.style.width = "min(560px,96vw)";
@@ -964,6 +979,7 @@ document.addEventListener("click", e => {
     o.estado = "cerrada"; o.cerrada = hoy(); alCerrar(o); save(); render(); }
   else if (a === "checklist") fChecklist(byId(D.ots, id));
   else if (a === "gen-ot") genOT(camion(id));
+  else if (a === "gen-ot-arr"){ if (crearOT(camion(id), true)){ save(); S.f.ots = "abiertas"; go("ots"); } }
   else if (a === "new-pauta") fPlan();
   else if (a === "edit-pauta") fPlan(D.pautas.find(p => p.id === id));
   else if (a === "ft-asignar") asignarFracttal();
