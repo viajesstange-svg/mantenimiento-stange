@@ -68,6 +68,7 @@ dialog input,dialog select,dialog textarea{display:block;width:100%;margin-top:3
 dialog label.chk{display:flex;gap:8px;align-items:center;color:var(--ink)}dialog label.chk input{width:auto;margin:0}
 dialog .btns{display:flex;gap:8px;justify-content:flex-end;margin-top:6px}
 .stk{position:sticky;top:calc(var(--hh,0px) + var(--bh,0px));z-index:20;background:var(--bg);padding:6px 0 4px}
+.mgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:12px}
 .kan{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;align-items:start;padding-bottom:8px}
 .kcol{background:var(--surface-2);border-radius:14px;padding:10px;min-width:0}
 .kh{display:flex;align-items:center;gap:8px;font-weight:700;margin:2px 4px 10px;border-left:4px solid var(--c,#999);padding-left:8px}
@@ -374,6 +375,8 @@ const fdate = s => { if(!s) return "—"; const [y,m,d] = s.split("-"); return `
 const MESES = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
 const camion = p => D.camiones.find(c => c.pat === p);
 const parDe = c => c && c.par ? camion(c.par) : null;
+/* Manda el tracto: un semi con tracto no genera pendientes ni avisos por si solo, viene con su tracto */
+const esRaiz = c => { const q = parDe(c); return !(q && esTractoC(q) && !esTractoC(c)); };
 const esTractoC = c => /tracto/i.test(c.tipo || "") || PAREJAS[c.pat] !== undefined;
 const ST_PREV_TXT = {vencido:"preventivo vencido", proximo:"preventivo próximo", ok:"al día", sin:"sin plan"};
 /** Texto de la pareja fija: "Semi 616 · 123.000 km · al día" (tracto <-> semi) */
@@ -441,9 +444,9 @@ function prev(c){
 }
 
 /* ================= Estado de la vista ================= */
-const TABS = [["resumen","Resumen"],["camiones","Camiones"],["tareas","Detalle de tareas"],["solicitudes","Solicitudes"],["pautas","Pautas"]];
+const TABS = [["resumen","Resumen"],["camiones","Camiones"],["tareas","Detalle de tareas"],["medidores","Medidores"],["solicitudes","Solicitudes"],["pautas","Pautas"]];
 let ESTADO_ANT = null, USUARIO = "";
-let S = {sel:new Set(), tab:"resumen", q:"", base:"", f:{camiones:"todos", tareas:"todo", ots:"abiertas", prev:"pendientes"}};
+let S = {sel:new Set(), tab:"resumen", q:"", base:"", f:{camiones:"todos", medidores:"todos", tareas:"todo", ots:"abiertas", prev:"pendientes"}};
 try{ const u = JSON.parse(localStorage.getItem(KEY+"_ui")||"{}"); if (TABS.some(x=>x[0]===u.tab)) S.tab = u.tab; if (typeof u.base === "string") S.base = u.base; }catch(e){}
 
 function guardarUI(){ try{ localStorage.setItem(KEY+"_ui", JSON.stringify({tab:S.tab, base:S.base})); }catch(e){} }
@@ -591,8 +594,8 @@ function vResumen(){
   const cerr = rec.filter(o => o.estado === "cerrada").length;
   const cumpl = rec.length ? Math.round(cerr*1000/rec.length)/10 : null;
   const plan = rec.filter(o => o.tipo === "preventivo").length, noPlan = rec.length - plan;
-  const pv = D.camiones.map(c => ({c, p:prev(c)})).filter(x => x.p.st === "vencido");
-  const pp = D.camiones.map(c => ({c, p:prev(c)})).filter(x => x.p.st === "proximo");
+  const pv = D.camiones.filter(esRaiz).map(c => ({c, p:prev(c)})).filter(x => x.p.st === "vencido");
+  const pp = D.camiones.filter(esRaiz).map(c => ({c, p:prev(c)})).filter(x => x.p.st === "proximo");
   const mes = h.slice(0,7);
   const gasto = D.gastos.filter(g => g.fecha.startsWith(mes)).reduce((a,g)=>a+(g.monto||0),0) + D.ots.filter(o => o.cerrada && o.cerrada.startsWith(mes)).reduce((a,o)=>a+(o.costo||0),0);
   const pr = PRIO.map(p => [p, abiertas.filter(o => o.prioridad === p).length]); const mx = Math.max(1, ...pr.map(x=>x[1]));
@@ -659,21 +662,20 @@ function vTareas(){
   const all = D.camiones.map(c => ({c, p:prev(c)}));
   const cumple = st => f === "vencido" ? st === "vencido" : f === "proximo" ? st === "proximo" : (st === "vencido" || st === "proximo");
   const stPar = c => { const x = parDe(c); return x ? prev(x).st : null; };
-  const lista = all.filter(x => (cumple(x.p.st) || (stPar(x.c) && cumple(stPar(x.c)))) && (match(x.c.pat, x.c.marca) || (q && x.c.par && match(x.c.par))));
-  const ord = {vencido:0, proximo:1, ok:2, sin:3};
-  const ordenado = lista.sort((a,b) => ord[a.p.st]-ord[b.p.st] || (a.p.kmR??1e9)-(b.p.kmR??1e9)), vistos = new Set(), grupos = [];
-  ordenado.forEach(x => { if (vistos.has(x.c.pat)) return; const qd = parDe(x.c), y = qd && ordenado.find(z => z.c === qd);
-    const par = y && !vistos.has(y.c.pat) ? (esTractoC(x.c) ? [x, y] : [y, x]) : [x]; par.forEach(z => { vistos.add(z.c.pat); grupos.push(z); }); });
+  const raices = all.filter(x => esRaiz(x.c) && cumple(x.p.st) && (match(x.c.pat, x.c.marca) || (q && x.c.par && match(x.c.par))));
+  const ord = {vencido:0, proximo:1, ok:2, sin:3}, grupos = [];
+  raices.sort((a,b) => ord[a.p.st]-ord[b.p.st] || (a.p.kmR??1e9)-(b.p.kmR??1e9)).forEach(x => {
+    grupos.push(x); const sm = parDe(x.c); if (sm && esTractoC(x.c) && !esTractoC(sm)) grupos.push({c:sm, p:prev(sm)}); });
   const corto = n => n.replace(/^MANTENIMIENTO PROGRAMADO\s*/i,"Programado ").replace(/^MANTENCIÓN\s*/i,"");
   const lbl = {vencido:["Vencido","red"],proximo:["Próximo","amber"],ok:["Al día","green"],sin:["Sin plan","gray"]};
   const cardPrev = ({c,p}) => {
     const trq = parDe(c), due = p.tareas.filter(t => t.st === "vencido" || t.st === "proximo");
-    const arr = !!(trq && !due.length && ["vencido","proximo"].includes(prev(trq).st));
+    const arr = !!(trq && esTractoC(trq) && !esTractoC(c));
     const lineas = p.tareas.filter(t => t.st !== "sinreg").sort((a,b) => a.kmR - b.kmR).slice(0,2).map(t => `<div>${esc(corto(t.tarea.nombre))}: ${t.kmR<=0?`pasada por ${fkm(-t.kmR)}`:`faltan ${fkm(t.kmR)}`}</div>`).join("")
       || (p.kmR != null ? `<div>${p.kmR<=0?`Pasado por ${fkm(-p.kmR)}`:`Faltan ${fkm(p.kmR)}`}</div>` : "");
     return `<div class="kc ${p.st==="vencido"?"flag":p.st==="proximo"?"warn":""}">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><input type="checkbox" data-act="sel" data-id="${esc(c.pat)}"${S.sel.has(c.pat)?" checked":""} style="width:18px;height:18px"><span class="plate">${esc(c.pat)}</span><small>${esc(c.tipo||"")}</small>${tag(lbl[p.st][0],lbl[p.st][1])}</div>
-      ${arr?`<div>${tag("Se arrastra con el "+(esTractoC(trq)?"tracto ":"semi ")+trq.pat,"amber")}</div>`:""}
+      ${arr?`<div>${tag("Viene con el tracto "+trq.pat,"amber")}</div>`:""}
       <div class="ks" style="display:grid">${lineas}</div>
       <div class="ks"><span>Km actual ${fkm(c.km)}</span>${trq?`<span><b>${esTractoC(c)?"Semi":"Tracto"} ${esc(trq.pat)}</b></span>`:""}</div>
       <div class="kact">${due.length||arr?`<button class="btn sm pri" data-act="gen-ot" data-id="${esc(c.pat)}">Generar OT</button>`:""}<button class="btn sm" data-act="hecha" data-id="${esc(c.pat)}">Registrar mantención hecha</button></div></div>`;
@@ -698,7 +700,7 @@ function vTareas(){
   const col = (titulo, color, n, body, nota) => `<div class="kcol"><div class="kh" style="--c:${color}">${titulo}<span class="n">${n}</span></div><div class="kb">${body || `<div class="sub" style="padding:8px">Sin elementos</div>`}${nota||""}</div></div>`;
   const barra = S.sel.size ? `<div class="chips" style="justify-content:space-between;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--surface-2)"><b>${S.sel.size} equipo${S.sel.size===1?"":"s"} seleccionado${S.sel.size===1?"":"s"}: ${esc([...S.sel].join(" + "))}</b><span style="display:flex;gap:8px"><button class="btn pri" data-act="gen-sel">Generar una sola OT</button><button class="btn" data-act="sel-clear">Limpiar</button></span></div>` : "";
   const h = `<div class="stk"><div class="chips" style="justify-content:space-between;margin-bottom:6px"><span style="display:flex;gap:8px;flex-wrap:wrap">${[["todo","Todo"],["atrasadas","OTs atrasadas"],["vencido","Vencidos"],["proximo","Próximos"]].map(([k,l]) => `<button class="chip" data-act="chip" data-key="tareas" data-v="${k}" aria-pressed="${f===k}">${l}</button>`).join("")}</span><button class="btn pri" data-act="new-ot">+ Nueva OT</button></div>`
-    + (S.sel.size ? barra : `<div class="sub" style="margin-bottom:2px">Marca con el check los equipos que irán juntos (por ejemplo un tracto y su semi) y genera una sola OT.</div>`) + `</div>`;
+    + (S.sel.size ? barra : `<div class="sub" style="margin-bottom:2px">Aquí aparecen los tractos pendientes, cada uno con su semirremolque. Marca los equipos que irán juntos y genera una sola OT.</div>`) + `</div>`;
   if (!all.length && !D.ots.length) return h + emptyMsg("Agrega camiones para ver sus tareas.", demoBtns);
   return h + `<div class="kan">
     ${col("Tareas pendientes","#9aa5b8",grupos.length, grupos.map(cardPrev).join(""))}
@@ -706,6 +708,34 @@ function vTareas(){
     ${col("OTs en revisión","#1f5fbf",enRev.length, enRev.map(cardOT).join(""))}
     ${col("OTs finalizadas","#1b7a3d",fin.length, fin.slice(0,15).map(cardOT).join(""), fin.length>15?`<div class="sub" style="padding:6px">Se muestran las últimas 15 de ${fin.length}.</div>`:"")}
   </div>`;
+}
+
+/* ===== Medidores: odometro de cada equipo y cuanto falta para su proxima mantencion ===== */
+function vMedidores(){
+  const f = S.f.medidores;
+  const all = D.camiones.map(c => ({c, p:prev(c)})).filter(x => match(x.c.pat, x.c.marca, x.c.tipo, x.c.base));
+  const n = k => all.filter(x => x.p.st === k).length;
+  const list = all.filter(x => f === "todos" || x.p.st === f).sort((a,b) => (a.p.kmR??1e12)-(b.p.kmR??1e12) || a.c.pat.localeCompare(b.c.pat));
+  const h = `<div class="stk"><div class="chips" style="margin-bottom:6px">${[["todos","Todos",all.length],["vencido","Vencidos",n("vencido")],["proximo","Próximos",n("proximo")],["ok","Al día",n("ok")],["sin","Sin plan",n("sin")]].map(([k,l,c]) => `<button class="chip" data-act="chip" data-key="medidores" data-v="${k}" aria-pressed="${f===k}">${l} · ${c}</button>`).join("")}</div><div class="sub">Odómetro de cada equipo y cuánto falta para su próxima mantención, según su pauta. Ordenados del que está más cerca.</div></div>`;
+  if (!all.length) return h + emptyMsg(D.camiones.length ? "Ningún equipo coincide." : "Sin equipos registrados.", demoBtns);
+  const corto = t => t.replace(/^MANTENIMIENTO PROGRAMADO\s*/i,"Programado ").replace(/^MANTENCIÓN\s*/i,"");
+  const col = st => st === "vencido" ? "var(--red)" : st === "proximo" ? "var(--amber)" : "var(--green)";
+  const barra = (nombre, st, kmR, cada, nk, ult) => {
+    const usado = cada ? Math.max(0, Math.min(100, Math.round((1 - kmR / cada) * 100))) : 0;
+    return `<div><div style="display:flex;justify-content:space-between;gap:8px;font-size:13px"><span>${esc(nombre)}</span><b style="color:${col(st)}">${kmR<=0?`pasada por ${fkm(-kmR)}`:`faltan ${fkm(kmR)}`}</b></div><div style="height:6px;border-radius:4px;background:var(--line);margin:3px 0"><div style="height:6px;border-radius:4px;width:${usado}%;background:${col(st)}"></div></div><div class="ks"><span>Próxima a los ${fkm(nk)}</span>${ult!=null?`<span>Última a los ${fkm(ult)}</span>`:""}</div></div>`;
+  };
+  return h + `<div class="mgrid" style="margin-top:8px">${list.map(({c,p}) => {
+    const lbl = {vencido:["Vencido","red"],proximo:["Próximo","amber"],ok:["Al día","green"],sin:["Sin plan","gray"]}[p.st], q = parDe(c);
+    const reg = p.tareas.filter(t => t.st !== "sinreg").sort((a,b) => a.kmR - b.kmR), sinreg = p.tareas.length - reg.length;
+    const filas = p.tareas.length ? reg.slice(0,4).map(t => barra(corto(t.tarea.nombre), t.st, t.kmR, t.tarea.cadaKm, t.nk, t.last.km)).join("")
+      : (p.nk != null ? barra("Mantención cada "+fkm(c.intKm), p.st, p.kmR, c.intKm, p.nk, c.ultKm) : "");
+    return `<div class="kc ${p.st==="vencido"?"flag":p.st==="proximo"?"warn":""}">
+      <div style="display:flex;justify-content:space-between;gap:8px;align-items:center"><b style="font-size:16px">Odómetro ${esc(c.tipo||"Equipo")} ${esc(c.pat)}</b>${tag(lbl[0],lbl[1])}</div>
+      <div style="display:grid;grid-template-columns:auto 1fr;gap:2px 10px;font-size:14px"><span style="color:var(--blue)">Último valor:</span><b>${fkm(c.km)}</b><span style="color:var(--blue)">Última fecha:</span><span>${c.kmFecha?fdate(c.kmFecha):"—"}</span><span style="color:var(--blue)">Activo:</span><span>${esc(c.pat)} ${esc(c.marca||c.tipo||"")}${c.base?` · ${esc(c.base)}`:""}</span>${q?`<span style="color:var(--blue)">${esTractoC(c)?"Semi":"Tracto"}:</span><span>${esc(q.pat)}</span>`:""}</div>
+      ${filas || `<div class="ks">Sin pauta ni última mantención registrada</div>`}
+      ${sinreg?`<div class="ks">${sinreg} tarea${sinreg===1?"":"s"} de su pauta sin registro</div>`:""}
+      <div class="kact"><button class="btn sm" data-act="edit-cam" data-id="${esc(c.pat)}">Editar</button><button class="btn sm" data-act="hist" data-id="${esc(c.pat)}">Historial</button></div></div>`;
+  }).join("")}</div>`;
 }
 
 function vOTs(){
@@ -1006,10 +1036,10 @@ function render(){
     const ab = D.ots.filter(otAbierta).length;
     document.getElementById("tabs").innerHTML = TABS.map(([k,l]) => `<button class="tab" role="tab" data-act="tab" data-tab="${k}" aria-selected="${S.tab===k}">${l}${k==="tareas"&&ab?` <span class="c">${ab}</span>`:""}${k==="solicitudes"&&D.fallas.some(x=>x.ext&&x.nueva)?` <span class="c">${D.fallas.filter(x=>x.ext&&x.nueva).length}</span>`:""}</button>`).join("");
     document.getElementById("q").style.display = S.tab === "resumen" ? "none" : "";
-    document.querySelectorAll(".wrap").forEach(w => { w.style.maxWidth = S.tab === "tareas" ? "1900px" : ""; });
+    document.querySelectorAll(".wrap").forEach(w => { w.style.maxWidth = (S.tab === "tareas" || S.tab === "medidores") ? "1900px" : ""; });
     try{ const hd = document.querySelector("header"), br = document.querySelector(".bar"), st = document.documentElement.style;
       if (hd && hd.offsetHeight) st.setProperty("--hh", hd.offsetHeight + "px"); if (br && br.offsetHeight) st.setProperty("--bh", br.offsetHeight + "px"); }catch(e){}
-    document.getElementById("view").innerHTML = {resumen:vResumen, camiones:vCamiones, tareas:vTareas, solicitudes:() => vFallas(true), pautas:vPautas, fallas:() => vFallas(false), costos:vCostos}[S.tab]();
+    document.getElementById("view").innerHTML = {resumen:vResumen, camiones:vCamiones, tareas:vTareas, medidores:vMedidores, solicitudes:() => vFallas(true), pautas:vPautas, fallas:() => vFallas(false), costos:vCostos}[S.tab]();
   } finally { D = full; }
   revisarAlertasMant();
   document.getElementById("foot").textContent = `Datos compartidos (Google Drive) · ${full.camiones.length} camiones · ${full.ots.length} OTs${S.base ? ` · mostrando ${S.base==="-"?"equipos sin base":S.base}` : ""}${EMAIL?` · ${EMAIL} (${ROL})`:""}${ESTADO?` · ${ESTADO}`:""}`;
@@ -1021,7 +1051,7 @@ document.getElementById("base").addEventListener("change", e => { S.base = e.tar
 function snapshotMant(){
   const m = {};
   const visible = c => !S.base || (S.base === "-" ? !c.base : c.base === S.base);
-  D.camiones.forEach(c => { const p = prev(c), v = visible(c);
+  D.camiones.forEach(c => { if (!esRaiz(c)) return; const p = prev(c), v = visible(c);
     if (p.tareas.length) p.tareas.forEach(t => { m[c.pat+"|"+t.key] = {st:t.st, pat:c.pat, tarea:t.tarea.nombre, kmR:t.kmR, visible:v}; });
     else m[c.pat+"|gen"] = {st:p.st, pat:c.pat, tarea:"Mantención (intervalo propio)", kmR:p.kmR, visible:v}; });
   return m;
