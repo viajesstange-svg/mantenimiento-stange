@@ -67,6 +67,7 @@ dialog label{display:block;font-size:13px;color:var(--muted);margin-bottom:10px}
 dialog input,dialog select,dialog textarea{display:block;width:100%;margin-top:3px;border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:8px 10px}
 dialog label.chk{display:flex;gap:8px;align-items:center;color:var(--ink)}dialog label.chk input{width:auto;margin:0}
 dialog .btns{display:flex;gap:8px;justify-content:flex-end;margin-top:6px}
+.stk{position:sticky;top:calc(var(--hh,0px) + var(--bh,0px));z-index:20;background:var(--bg);padding:6px 0 4px}
 .kan{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;align-items:start;padding-bottom:8px}
 .kcol{background:var(--surface-2);border-radius:14px;padding:10px;min-width:0}
 .kh{display:flex;align-items:center;gap:8px;font-weight:700;margin:2px 4px 10px;border-left:4px solid var(--c,#999);padding-left:8px}
@@ -696,8 +697,8 @@ function vTareas(){
   const fin = ots.filter(o => o.estado === "cerrada").sort((a,b) => (b.cerrada||"").localeCompare(a.cerrada||""));
   const col = (titulo, color, n, body, nota) => `<div class="kcol"><div class="kh" style="--c:${color}">${titulo}<span class="n">${n}</span></div><div class="kb">${body || `<div class="sub" style="padding:8px">Sin elementos</div>`}${nota||""}</div></div>`;
   const barra = S.sel.size ? `<div class="chips" style="justify-content:space-between;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--surface-2)"><b>${S.sel.size} equipo${S.sel.size===1?"":"s"} seleccionado${S.sel.size===1?"":"s"}: ${esc([...S.sel].join(" + "))}</b><span style="display:flex;gap:8px"><button class="btn pri" data-act="gen-sel">Generar una sola OT</button><button class="btn" data-act="sel-clear">Limpiar</button></span></div>` : "";
-  const h = `<div class="chips" style="justify-content:space-between"><span style="display:flex;gap:8px;flex-wrap:wrap">${[["todo","Todo"],["atrasadas","OTs atrasadas"],["vencido","Vencidos"],["proximo","Próximos"]].map(([k,l]) => `<button class="chip" data-act="chip" data-key="tareas" data-v="${k}" aria-pressed="${f===k}">${l}</button>`).join("")}</span><button class="btn pri" data-act="new-ot">+ Nueva OT</button></div>`
-    + (S.sel.size ? barra : `<div class="sub" style="margin-bottom:8px">Marca con el check los equipos que irán juntos (por ejemplo un tracto y su semi) y genera una sola OT.</div>`);
+  const h = `<div class="stk"><div class="chips" style="justify-content:space-between;margin-bottom:6px"><span style="display:flex;gap:8px;flex-wrap:wrap">${[["todo","Todo"],["atrasadas","OTs atrasadas"],["vencido","Vencidos"],["proximo","Próximos"]].map(([k,l]) => `<button class="chip" data-act="chip" data-key="tareas" data-v="${k}" aria-pressed="${f===k}">${l}</button>`).join("")}</span><button class="btn pri" data-act="new-ot">+ Nueva OT</button></div>`
+    + (S.sel.size ? barra : `<div class="sub" style="margin-bottom:2px">Marca con el check los equipos que irán juntos (por ejemplo un tracto y su semi) y genera una sola OT.</div>`) + `</div>`;
   if (!all.length && !D.ots.length) return h + emptyMsg("Agrega camiones para ver sus tareas.", demoBtns);
   return h + `<div class="kan">
     ${col("Tareas pendientes","#9aa5b8",grupos.length, grupos.map(cardPrev).join(""))}
@@ -1006,7 +1007,8 @@ function render(){
     document.getElementById("tabs").innerHTML = TABS.map(([k,l]) => `<button class="tab" role="tab" data-act="tab" data-tab="${k}" aria-selected="${S.tab===k}">${l}${k==="tareas"&&ab?` <span class="c">${ab}</span>`:""}${k==="solicitudes"&&D.fallas.some(x=>x.ext&&x.nueva)?` <span class="c">${D.fallas.filter(x=>x.ext&&x.nueva).length}</span>`:""}</button>`).join("");
     document.getElementById("q").style.display = S.tab === "resumen" ? "none" : "";
     document.querySelectorAll(".wrap").forEach(w => { w.style.maxWidth = S.tab === "tareas" ? "1900px" : ""; });
-    { const hd = document.querySelector("header"); if (hd && hd.offsetHeight) document.documentElement.style.setProperty("--hh", hd.offsetHeight + "px"); }
+    try{ const hd = document.querySelector("header"), br = document.querySelector(".bar"), st = document.documentElement.style;
+      if (hd && hd.offsetHeight) st.setProperty("--hh", hd.offsetHeight + "px"); if (br && br.offsetHeight) st.setProperty("--bh", br.offsetHeight + "px"); }catch(e){}
     document.getElementById("view").innerHTML = {resumen:vResumen, camiones:vCamiones, tareas:vTareas, solicitudes:() => vFallas(true), pautas:vPautas, fallas:() => vFallas(false), costos:vCostos}[S.tab]();
   } finally { D = full; }
   revisarAlertasMant();
