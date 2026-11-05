@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Reportar equipo · Stange</title>
+<style>
+:root{--bg:#f4f6f9;--surface:#fff;--ink:#14213d;--muted:#5b6b82;--line:#d7dde8;--navy:#14315c;--red:#c62828;--green:#1b7a3d}
+@media (prefers-color-scheme:dark){:root{--bg:#0e1522;--surface:#162033;--ink:#e8edf5;--muted:#93a2b8;--line:#2a3955;--navy:#8fb3ec;--red:#ff8a80;--green:#7fd9a0}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif}
+header{background:var(--surface);border-bottom:1px solid var(--line);padding:14px 16px}
+header b{letter-spacing:.08em;color:var(--navy);font-size:19px}
+header span{display:block;color:var(--muted);font-size:14px}
+main{max-width:520px;margin:0 auto;padding:16px}
+label{display:block;font-weight:600;margin:14px 0 6px}
+input,select,textarea{width:100%;font:inherit;color:inherit;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:13px}
+textarea{min-height:110px;resize:vertical}
+.seg{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.seg2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.seg button,.seg2 button{border:1px solid var(--line);background:var(--surface);color:inherit;border-radius:12px;padding:12px 4px;font:inherit;font-weight:600}
+.seg button[aria-pressed="true"],.seg2 button[aria-pressed="true"]{background:var(--navy);color:var(--surface);border-color:var(--navy)}
+.send{width:100%;margin-top:20px;border:0;border-radius:14px;background:var(--navy);color:var(--surface);font:inherit;font-weight:700;padding:16px}
+.send:disabled{opacity:.6}
+.msg{margin-top:14px;padding:12px 14px;border-radius:12px;font-weight:600}
+.msg.ok{background:rgba(27,122,61,.14);color:var(--green)}.msg.err{background:rgba(198,40,40,.14);color:var(--red)}
+.hint{color:var(--muted);font-size:14px;margin-top:4px}
+</style>
+</head>
+<body>
+<header><b>STANGE</b><span>Reportar problema de un equipo</span></header>
+<main>
+  <form id="f" autocomplete="off">
+    <label for="equipo">Equipo (número)</label>
+    <input id="equipo" inputmode="text" placeholder="Ej: 5316" required maxlength="20">
+
+    <label for="conductor">Tu nombre</label>
+    <input id="conductor" placeholder="Nombre y apellido" required maxlength="60">
+
+    <label for="desc">¿Qué le pasa al equipo?</label>
+    <textarea id="desc" placeholder="Ej: pierde aire, tapabarro roto, luz de puerta quemada…" required maxlength="600"></textarea>
+
+    <label>Gravedad</label>
+    <div class="seg" id="sev"></div>
+
+    <label>¿Puede seguir operando?</label>
+    <div class="seg2" id="opera"></div>
+
+    <label for="km">Kilometraje (opcional)</label>
+    <input id="km" type="number" inputmode="numeric" min="0" placeholder="Km del tablero">
+
+    <div id="codeBox" hidden>
+      <label for="codigo">Código de conductor</label>
+      <input id="codigo" placeholder="Te lo entrega administración">
+      <div class="hint">Solo se pide la primera vez.</div>
+    </div>
+
+    <button class="send" id="send" type="submit">Enviar reporte</button>
+    <div id="msg" role="status"></div>
+  </form>
+</main>
+<script>
+/* Comunicación con el servidor (Apps Script) por fetch, igual que la app de registro de viajes.
+   Mantiene la forma google.script.run.withSuccessHandler(...).withFailureHandler(...).funcion(args). */
+const API_URL = "https://script.google.com/macros/s/AKfycbz9-miexOJHOrgyTcb_KDHlUgGjPS2T0HFTzqXpswygxTczqLLJgrdCkPGmj49sFDQxNQ/exec";
+window.google = { script: { get run(){
+  let ok = () => {}, fail = () => {};
+  const p = new Proxy({}, { get(_, nombre){
+    if (nombre === "withSuccessHandler") return f => { ok = f; return p; };
+    if (nombre === "withFailureHandler") return f => { fail = f; return p; };
+    return (...args) => {
+      fetch(API_URL, { method: "POST", body: JSON.stringify({ accion: nombre, args }) })
+        .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+        .then(j => { if (j && j.ok) ok(j.valor); else fail(new Error((j && j.error) || "Error del servidor")); })
+        .catch(e => fail(new Error(/Failed to fetch|NetworkError|Load failed/i.test(String(e && e.message)) ? "Sin conexión con el servidor" : (e && e.message) || "Error")));
+    };
+  } });
+  return p;
+} } };
+</script>
+<script>
+const $ = id => document.getElementById(id);
+let sev = "Media", opera = "Sí";
+function seg(box, opts, get, set){
+  $(box).innerHTML = opts.map(o => `<button type="button" aria-pressed="${get()===o}">${o}</button>`).join("");
+  $(box).onclick = e => { const b = e.target.closest("button"); if (!b) return; set(b.textContent); seg(box, opts, get, set); };
+}
+seg("sev", ["Baja","Media","Alta","Muy alta"], () => sev, v => sev = v);
+seg("opera", ["Sí","No"], () => opera, v => opera = v);
+
+const mem = k => { try { return localStorage.getItem("obs_"+k) || ""; } catch(e){ return ""; } };
+const setMem = (k,v) => { try { localStorage.setItem("obs_"+k, v); } catch(e){} };
+$("conductor").value = mem("conductor");
+if (!mem("codigo")) $("codeBox").hidden = false;
+
+$("f").addEventListener("submit", e => {
+  e.preventDefault();
+  const o = {equipo:$("equipo").value, conductor:$("conductor").value, desc:$("desc").value, severidad:sev, opera, km:$("km").value, codigo:$("codigo").value || mem("codigo")};
+  $("send").disabled = true; $("msg").className = ""; $("msg").textContent = "Enviando…";
+  google.script.run
+    .withSuccessHandler(() => {
+      setMem("conductor", o.conductor); if (o.codigo) setMem("codigo", o.codigo);
+      $("msg").className = "msg ok"; $("msg").textContent = "Reporte enviado. Gracias.";
+      $("equipo").value = ""; $("desc").value = ""; $("km").value = ""; sev = "Media"; opera = "Sí";
+      seg("sev", ["Baja","Media","Alta","Muy alta"], () => sev, v => sev = v); seg("opera", ["Sí","No"], () => opera, v => opera = v);
+      $("codeBox").hidden = true; $("send").disabled = false;
+    })
+    .withFailureHandler(err => {
+      $("msg").className = "msg err"; $("msg").textContent = (err && err.message ? err.message.replace(/^Error:\s*/,"") : "No se pudo enviar") + ". Revisa e intenta de nuevo.";
+      if (/código/i.test(err && err.message || "")){ $("codeBox").hidden = false; setMem("codigo",""); }
+      $("send").disabled = false;
+    })
+    .enviarObservacion(o);
+});
+</script>
+</body>
+</html>

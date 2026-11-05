@@ -1,0 +1,1075 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mantenimiento · Stange</title>
+<script>
+/* Comunicación con el servidor (Apps Script) por fetch, igual que la app de registro de viajes.
+   Mantiene la forma google.script.run.withSuccessHandler(...).withFailureHandler(...).funcion(args). */
+const API_URL = "https://script.google.com/macros/s/AKfycbz9-miexOJHOrgyTcb_KDHlUgGjPS2T0HFTzqXpswygxTczqLLJgrdCkPGmj49sFDQxNQ/exec";
+window.google = { script: { get run(){
+  let ok = () => {}, fail = () => {};
+  const p = new Proxy({}, { get(_, nombre){
+    if (nombre === "withSuccessHandler") return f => { ok = f; return p; };
+    if (nombre === "withFailureHandler") return f => { fail = f; return p; };
+    return (...args) => {
+      fetch(API_URL, { method: "POST", body: JSON.stringify({ accion: nombre, args }) })
+        .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+        .then(j => { if (j && j.ok) ok(j.valor); else fail(new Error((j && j.error) || "Error del servidor")); })
+        .catch(e => fail(new Error(/Failed to fetch|NetworkError|Load failed/i.test(String(e && e.message)) ? "Sin conexión con el servidor" : (e && e.message) || "Error")));
+    };
+  } });
+  return p;
+} } };
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{--bg:#f4f6f9;--surface:#fff;--surface-2:#eaeef4;--ink:#14213d;--muted:#5b6b82;--line:#e1e6ee;--navy:#14315c;
+--red:#c62828;--red-bg:#fdecec;--amber:#a65f00;--amber-bg:#fff3dc;--green:#1b7a3d;--green-bg:#e4f5ea;--blue:#1f5fbf;--blue-bg:#e6effc}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0e1522;--surface:#162033;--surface-2:#1d2a42;--ink:#e8edf5;--muted:#93a2b8;--line:#25324a;--navy:#8fb3ec;
+--red:#ff8a80;--red-bg:#3a1c1f;--amber:#ffc266;--amber-bg:#3a2d14;--green:#7fd9a0;--green-bg:#15301f;--blue:#8fb3ec;--blue-bg:#18284a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;font-variant-numeric:tabular-nums}
+button,input,select,textarea{font:inherit;color:inherit}
+header{background:var(--surface);border-bottom:1px solid var(--line)}
+.wrap{max-width:1100px;margin:0 auto;padding:16px}
+.brand{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.brand b{font-size:20px;letter-spacing:.08em;color:var(--navy)}
+h1{margin:0;font-size:20px}
+.sub{color:var(--muted);font-size:13px;margin-top:2px}
+.bar{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-bottom:14px}
+.tabs{display:flex;background:var(--surface-2);border-radius:10px;padding:4px;gap:4px;overflow-x:auto;max-width:100%}
+.tab{border:0;background:transparent;border-radius:7px;padding:8px 14px;font-weight:600;cursor:pointer;white-space:nowrap;display:inline-flex;gap:8px;align-items:center}
+.tab .c{font-size:12px;background:var(--line);border-radius:999px;padding:0 7px}
+.tab[aria-selected="true"]{background:var(--surface);box-shadow:0 1px 2px rgb(0 0 0/.12);color:var(--navy)}
+.search{flex:1;min-width:180px;max-width:320px;border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:9px 12px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:16px}
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px;text-align:left;cursor:pointer;display:flex;flex-direction:column;gap:2px}
+.kpi .l{color:var(--muted);font-size:13px}.kpi .n{font-size:30px;font-weight:700;line-height:1.1}.kpi .s{color:var(--muted);font-size:12px}
+.kpi.red .n{color:var(--red)}.kpi.green .n{color:var(--green)}.kpi.amber .n{color:var(--amber)}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:16px}
+.panel h3{margin:0 0 10px;font-size:15px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:760px){.grid2{grid-template-columns:1fr}}
+.stack{display:flex;height:18px;border-radius:9px;overflow:hidden;background:var(--surface-2)}
+.stack i{display:block;height:100%}
+.legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;font-size:13px;color:var(--muted)}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:center}
+.chip{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:5px 12px;cursor:pointer;font-size:13px}
+.chip[aria-pressed="true"]{background:var(--navy);color:var(--surface);border-color:var(--navy)}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:9px;padding:7px 12px;cursor:pointer;font-weight:600;font-size:13px}
+.btn.pri{background:var(--navy);color:var(--surface);border-color:var(--navy)}
+.btn.sm{padding:4px 9px;font-weight:500}
+.btn.danger{color:var(--red)}
+.row{display:grid;grid-template-columns:110px 1fr auto;gap:12px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:8px}
+.row.flag{border-left:4px solid var(--red)}.row.warn{border-left:4px solid var(--amber)}
+.plate{font-weight:800;letter-spacing:.06em;background:var(--surface-2);border-radius:6px;padding:3px 8px;display:inline-block}
+.what .d{font-weight:600}.what .m{color:var(--muted);font-size:13px;display:flex;gap:6px 12px;flex-wrap:wrap;margin-top:2px}
+.acts{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+@media(max-width:620px){.row{grid-template-columns:1fr}.acts{justify-content:flex-start}}
+.tag{font-size:12px;font-weight:600;border-radius:999px;padding:1px 9px;display:inline-block}
+.tag.red{background:var(--red-bg);color:var(--red)}.tag.amber{background:var(--amber-bg);color:var(--amber)}
+.tag.green{background:var(--green-bg);color:var(--green)}.tag.blue{background:var(--blue-bg);color:var(--blue)}.tag.gray{background:var(--surface-2);color:var(--muted)}
+.sec{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:16px 0 8px}
+.empty{background:var(--surface);border:1px dashed var(--line);border-radius:12px;padding:32px 16px;text-align:center;color:var(--muted)}
+.empty .btn{margin:10px 4px 0}
+.tbl{width:100%;border-collapse:collapse}.tbl td,.tbl th{padding:8px 6px;border-bottom:1px solid var(--line);text-align:left;font-size:14px}
+.tbl th{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.05em}.tbl td.r,.tbl th.r{text-align:right}
+.bars .b{display:grid;grid-template-columns:90px 1fr 44px;gap:8px;align-items:center;margin:6px 0;font-size:13px}
+.bars .t{height:12px;background:var(--surface-2);border-radius:6px;overflow:hidden}.bars .t i{display:block;height:100%;background:var(--navy)}
+footer{display:flex;gap:8px;flex-wrap:wrap;justify-content:space-between;align-items:center;color:var(--muted);font-size:12px;padding:8px 0 24px}
+dialog{border:1px solid var(--line);border-radius:14px;background:var(--surface);color:var(--ink);padding:18px;width:min(460px,94vw)}
+dialog::backdrop{background:rgb(0 0 0/.45)}
+dialog h2{margin:0 0 12px;font-size:17px}
+dialog label{display:block;font-size:13px;color:var(--muted);margin-bottom:10px}
+dialog input,dialog select,dialog textarea{display:block;width:100%;margin-top:3px;border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:8px 10px}
+dialog label.chk{display:flex;gap:8px;align-items:center;color:var(--ink)}dialog label.chk input{width:auto;margin:0}
+dialog .btns{display:flex;gap:8px;justify-content:flex-end;margin-top:6px}
+</style>
+</head>
+<body>
+<header><div class="wrap">
+  <div class="brand"><b>STANGE</b><h1>Mantenimiento</h1></div>
+  <div class="sub" id="sub">Flota · órdenes de trabajo · preventivo</div>
+</div></header>
+
+<main class="wrap">
+  <div class="bar">
+    <div class="tabs" role="tablist" id="tabs"></div>
+    <select class="search" id="base" aria-label="Base" style="max-width:190px;flex:0 1 190px"></select>
+    <input class="search" id="q" type="search" placeholder="Buscar patente, descripción o responsable" aria-label="Buscar">
+  </div>
+  <div id="view"></div>
+  <footer>
+    <span id="foot"></span>
+    <span>
+      <button class="btn sm" data-act="export">Exportar respaldo</button>
+      <button class="btn sm" data-act="import">Importar respaldo</button>
+      <button class="btn sm" data-act="clave">Cambiar clave</button>
+      <button class="btn sm" data-act="salir">Salir</button>
+      <input type="file" id="file" accept="application/json" hidden>
+      <input type="file" id="xl" accept=".xlsx,.xls" hidden>
+      <input type="file" id="um" accept="application/json,.json" hidden>
+    </span>
+  </footer>
+</main>
+<dialog id="dlg"></dialog>
+
+<script>
+/* ================= Datos (guardados en este navegador) ================= */
+const KEY = "stange_mant_v1";
+/* Pautas iniciales, tomadas de las OT de Fracttal STA-7738OT (rampla 15.000) y STA-7740OT (rampla y tracto 20.000) */
+function seedItems(){
+  const R = [
+    ["LUBRICACIÓN / REVISIÓN NIVELES","ENGRASE DE PARTES MÓVILES.","sino"],
+    ["ESTRUCTURA","VERIFICAR APRIETE O ESTADO DE LOS GUARDAFANGOS."],
+    ["ESTRUCTURA","INSPECCIONAR EL CHASIS Y FIJACIONES BAJO ESTANQUE DE PRODUCTO (FISURA, DAÑO, APRIETE)."],
+    ["EJES Y RUEDAS","REVISION JUEGO DE MAZAS EN TODOS LOS EJES"],
+    ["EJES Y RUEDAS","REVISION ESTADO DE LOS NEUMATICOS, DESGASTE Y PRESION."],
+    ["ELECTRÓNICA","REVISION DE TAPAS DOMO, VERIFICAR FILTRACIONES, VALVULA PRESION Y VACIO QUE ESTE EN BUEN ESTADO, ESTADO DE PINTURA DE FLECHAS, PRESENCIA SELLOS EN PASILLO Y ESTANQUES."],
+    ["SUSPENSIÓN","REVISIÓN DEL ESTADO DEL SISTEMA DE SUSPENSIÓN. CONTROLAR ESTADO Y SEÑALES DE DESGASTE DE LOS AMORTIGUADORES, PULMONES Y TORNILLOS; EN EL CASO DE EQUIPOS ANTIGUOS REVISAR PAQUETE DE RESORTES."],
+    ["SISTEMA ACOPLE TRACTO","REVISIÓN VISUAL DE ESTADO DEL PERNO REY, REAPRETAR TUERCAS DE FIJACIÓN SI ES NECESARIO."],
+    ["SUSPENSIÓN","CONTROL DEL DESGASTE DE GOLILLAS DE TEFLÓN SUSPENSIÓN BUGIE Y EJE ALZABLE."],
+    ["SISTEMA NEUMÁTICO","CONTROL Y FUNCIONAMIENTO DE LOS CILINDROS NEUMÁTICOS (BARANDA)."],
+    ["SISTEMA NEUMÁTICO","CONTROL DE VÁLVULAS DE EJE ALZABLE."],
+    ["SISTEMA NEUMÁTICO","CONTROL DE FUGAS Y ROCES EN CAÑERÍAS, TECALANES Y DEPÓSITOS DE AIRE."],
+    ["SISTEMA DE FRENOS","REVISIÓN VISUAL DESGASTE BALATAS O PASTILLAS Y DISCO DE FRENO."],
+    ["SISTEMA NEUMÁTICO","DRENAJE DEL DEPÓSITO DE AIRE.","sino"],
+    ["LUCES PRINCIPALES","INSPECCIÓN DEL CORRECTO FUNCIONAMIENTO DEL ESTADO DE LUCES Y REFLECTORES."],
+    ["SISTEMA DE FRENOS","COMPROBAR EL CORRECTO FUNCIONAMIENTO DEL SISTEMA DE FRENOS."],
+    ["SISTEMA DE FRENOS","INSPECCIONAR EL ESTADO DEL CIRCUITO DE AIRE DEL SISTEMA DE FRENOS, DETECCIÓN DE FUGAS."],
+    ["CONTROLES EXTERIORES","VERIFICAR ESTADO GRÁFICAS."],
+    ["CONTROL DE FUNCIONAMIENTO","CONTROL FUNCIONAMIENTO Y LUBRICACION DE TODAS LAS VÁLVULA INTERLOCK DEL EQUIPO."],
+    ["CONTROLES EXTERIORES","CONTROL ESTADO PINTURA EQUIPO."],
+    ["CONTROLES EXTERIORES","VERIFICAR ESTADO DE CONECTORES DE AIRE Y ELÉCTRICOS."],
+    ["CONTROLES EXTERIORES","VERIFICAR O LIMPIAR LA LENTE EN CÁMARAS DE VIGILANCIA."],
+    ["CONTROL DE FUNCIONAMIENTO","CONTROL VÁLVULA API, REALIZAR INSPECCIÓN DEL CUELLO DE VÁLVULA DE CADA COMPARTIMIENTO. REVISAR SI EXISTEN TRIZADURAS EN VISORES."],
+    ["CONTROLES EXTERIORES","VERIFICAR ESTADO DE RELOJES DE CONTROL DE PRESIÓN DE AIRE Y VÁLVULA REGULADORA."],
+    ["CONTROL DE FUNCIONAMIENTO","CONTROL VÁLVULA INTERLOCK, AL ACCIONAR LA VÁLVULA INTERLOCK EL EQUIPO DEBE FRENARSE."],
+    ["CONTROL DE FUNCIONAMIENTO","VÁLVULA DE CORTE DE EMERGENCIA, PRUEBE LAS PALANCAS DE ADELANTE Y DE ATRAS DE LA CISTERNA."],
+    ["CONTROL DE FUNCIONAMIENTO","CONTROL Y FUNCIONAMIENTO VÁLVULA DE VENTEO DE LOS DIFERENTES COMPARTIMIENTOS."],
+    ["INSPECCIÓN PERIMETRAL","VERIFICAR CONDICIÓN DE ESCALERILLA DE ACCESO SUPERIOR Y TAPAS SUPERIORES."],
+    ["INSPECCIÓN PERIMETRAL","CONTROL FUGAS DE LÍQUIDO O PRODUCTO EN CAÑERÍAS, BRIDAS O EMPAQUES."],
+    ["INSPECCIÓN PERIMETRAL","CONTROL TAPAS DE TUBO PORTA MANGUERAS DE DESCARGA Y RODILLO."],
+    ["INSPECCIÓN PERIMETRAL","REVISIÓN Y/ O CAMBIO MANGUERA CÓNICA DE VENTEO."],
+  ].map(x => ({sis:x[0], desc:x[1], tipo:x[2]||"apf"}));
+  const T = [
+    ["OPERACIÓN DE FLUIDOS","CAMBIO ACEITE DE MOTOR (CAMBIO GOLILLA TAPON DE ACEITE SI APLICA)","sino"],
+    ["SISTEMAS DE FILTROS","REEMPLAZO DEL FILTRO DE ACEITE DEL MOTOR","sino"],
+    ["SISTEMAS DE FILTROS","REEMPLAZAR FILTRO DE COMBUSTIBLE Y FILTRO FINO DE COMBUSTIBLE.","sino"],
+  ].map(x => ({sis:x[0], desc:x[1], tipo:x[2]}));
+  /* OT STA-7297OT: camión MAN 4061 + estanque Henal 15 m³, mantención cada 20.000 km */
+  const C = [
+    ["OPERACIÓN DE FLUIDOS","CAMBIO ACEITE DE MOTOR (CAMBIO GOLILLA TAPON DE ACEITE SI APLICA)","sino"],
+    ["SISTEMAS DE FILTROS","REEMPLAZO DEL FILTRO DE ACEITE DEL MOTOR","sino"],
+    ["SISTEMAS DE FILTROS","REEMPLAZAR FILTRO DE COMBUSTIBLE Y FILTRO FINO DE COMBUSTIBLE.","sino"],
+    ["SISTEMAS DE FILTROS","REVISAR EL ELEMENTO DEL FILTRO DE AIRE","sino"],
+    ["SISTEMAS DE FILTROS","REEMPLAZO DE ELEMENTO FILTRANTE DE PREFILTRO DE COMBUSTIBLE, CON SEPARADOR DE AGUA (FILTRO RACOR)","sino"],
+    ["SISTEMAS DE FILTROS","CAMBIAR EL FILTRO DE POLVO DE LA CALEFACCIÓN / VENTILACIÓN.","sino"],
+    ["SISTEMAS DE FILTROS","CAMBIAR EL CARTUCHO GRANULADO DEL SECADOR DE AIRE COMPRIMIDO.","sino"],
+    ["NIVELES DE FLUIDO","VERIFICAR EL NIVEL DE REFRIGERANTE, VERIFICAR ESTADO DE LIMPIEZA DEL LIQUIDO REFRIGERANTE CON REFRACTOMETRO."],
+    ["SISTEMAS DE FILTROS","RENOVAR EL FILTRO DEL AdBlue.","sino"],
+    ["NIVELES DE FLUIDO","VERIFICAR EL NIVEL EN EL DEPOSITO DE AdBlue."],
+    ["FUGAS Y ESTADOS FISICO","VERIFICAR ESTADO FÍSICO Y FUGAS EN MOTOR, CAJA DE CAMBIO, RETARDADOR, EJES, DIRECCIÓN, BOMBA DE SERVODIRECCION, SISTEMA DE INCLINACIÓN DE CABINA."],
+    ["FUGAS Y ESTADOS FISICO","VERIFICAR ESTADO Y ESTANQUEIDAD DE TODOS LOS DEPOSITOS, AMORTIGUADORES, CUBIERTAS, GUARNICIONES, CAPERUZAS PROTECTORAS."],
+    ["FUGAS Y ESTADOS FISICO","VERIFICAR ESTANQUEIDAD, FUGAS Y ESTADO, DE LAS TUBERÍA DE ADMISIÓN DE AIRE ENTRE EL FILTRO DEL MISMO Y EL MOTOR."],
+    ["FUGAS Y ESTADOS FISICO","VERIFICAR ESTANQUEIDAD, ESTADO Y FUGAS EN EL SISTEMA DE ESCAPE."],
+    ["CHASIS Y CARROCERÍA","VERIFICAR ESTADO DE TODOS LOS CABLES Y TUBOS FLEXIBLES, CABLES DE SENSOR, VERIFICAR PUNTOS DE DESGASTE POR ROZAMIENTO Y QUE NO EXISTAN SECCIONES SUELTAS EN EL TENDIDO."],
+    ["MOTOR","VERIFICAR ESTADO DE LA CORREA, COMPROBAR SI NERVIOS TRAPEZOIDALES ESTÁN DESGASTADOS O DAÑADOS Y REVISAR TENSORES Y POLEAS LOCAS"],
+    ["RUEDAS Y NEUMATICOS","VERIFICAR LA PRESIÓN DE RODADOS, INCLUIDA LA DE REPUESTO. REALIZAR ROTACION SI ES NECESARIO."],
+    ["CHASIS Y CARROCERÍA","VERIFICAR Y ENGRASAR EL ENGANCHE DEL REMOLQUE (MUELA), SOLO EN CAMIONES."],
+    ["SISTEMA ACOPLE TRACTO","VERIFICAR Y CALIBRAR MORDAZA QUINTA RUEDA."],
+    ["SISTEMA ACOPLE TRACTO","REVISION VISUAL Y ENGRASAR LA QUINTA RUEDA."],
+    ["CHASIS Y CARROCERÍA","VERIFICAR PRESENCIA DE DAÑOS O FUGAS EN LOS FUELLES NEUMÁTICOS."],
+    ["CHASIS Y CARROCERÍA","COMPROBAR EL ESTADO DEL SISTEMA MECÁNICO DE LA DIRECCIÓN. REVISAR BARRAS CORTAS, LARGAS Y JUEGO DE PASADORES DE MUÑONES."],
+    ["CHASIS Y CARROCERÍA","REAPRETAR TORNILLOS Y TUERCAS DEL CHASIS, RUEDAS Y CARROCERÍAS.","sino"],
+    ["TRANSMISION Y TREN MOTRIZ","VERIFICAR SI EXISTE JUEGO EN CRUCETA DE CARDAN Y REVISION EN CAMIONES DE RODAMIENTO CARDAN."],
+    ["CHASIS Y CARROCERÍA","LUBRICAR Y VERIFICAR ENGANCHE DE CABINA","sino"],
+    ["SISTEMA ELECTRICO","VERIFICAR FUNCIONAMIENTO CORTACORRIENTE"],
+    ["FRENOS","REVISAR VISUALMENTE ESTADO DE PASTILLAS DE FRENO"],
+    ["HERRAMIENTA DIAGNÓSTICO","REVISION Y DIAGNOSTICO DEL SISTEMA CON SCANNER","sino"],
+    ["FRENOS","DRENAR ESTANQUE DE AIRE FRENOS","sino"],
+    ["CONTROL DE FUNCIONAMIENTO","VERIFICAR FUNCIONAMIENTO DE BOCINA, SISTEMA DE SEÑALES Y TESTIGOS DE CONTROL EN EL TABLERO DE INSTRUMENTOS."],
+    ["CONTROL DE FUNCIONAMIENTO","VERIFICAR EL SISTEMA DE LIMPIA PARABRISAS."],
+  ].map(x => ({grupo:"CAMIÓN", sis:x[0], desc:x[1], tipo:x[2]||"apf"}));
+  const E = [
+    ["SISTEMA DE MOTOBOMBA","ENGRASE DE PARTES MÓVILES MOTOBOMBA.","sino"],
+    ["SISTEMA DE MOTOBOMBA","VERIFICAR CONDICION DEL CARDAN DE MOTOBOMBA.","sino"],
+    ["SISTEMA DE MOTOBOMBA","VERIFICAR FUNCIONAMIENTO DE MOTOR DE CARRETE."],
+    ["ESTRUCTURA","VERIFICAR APRIETE O ESTADO DE LOS GUARDAFANGOS."],
+    ["ESTRUCTURA","INSPECCIONAR SOPORTES FIJACIONES ESTANQUE Y ESTADO DE LIMONES."],
+    ["ELECTRÓNICA","CONTROL ESTADO DE SENSORES DE SOBRE LLENADO"],
+    ["ELECTRÓNICA","REVISION DE TAPAS DOMO, VERIFICAR FILTRACIONES, VALVULA PRESION Y VACIO QUE ESTE EN BUEN ESTADO, ESTADO DE PINTURA DE FLECHAS, PRESENCIA SELLOS EN PASILLO Y ESTANQUES."],
+    ["SISTEMA NEUMÁTICO","CONTROL DE FUGAS Y ROCES EN CAÑERÍAS Y TECALANES."],
+    ["LUCES PRINCIPALES","INSPECCIÓN DEL CORRECTO FUNCIONAMIENTO DEL ESTADO DE LUCES Y REFLECTORES."],
+    ["CONTROLES EXTERIORES","VERIFICAR ESTADO GRÁFICAS."],
+    ["CONTROLES EXTERIORES","CONTROL ESTADO PINTURA EQUIPO."],
+    ["CONTROLES EXTERIORES","VERIFICAR ESTADO DE CONECTORES DE AIRE Y ELÉCTRICOS."],
+    ["CONTROLES EXTERIORES","VERIFICAR O LIMPIAR LA LENTE EN CÁMARAS DE VIGILANCIA."],
+    ["CONTROLES EXTERIORES","VERIFICAR ESTADO DE RELOJES DE CONTROL DE PRESIÓN DE AIRE Y VÁLVULA REGULADORA."],
+    ["CONTROL DE FUNCIONAMIENTO","CONTROL FUNCIONAMIENTO Y LUBRICACION DE TODAS LAS VÁLVULA INTERLOCK DEL EQUIPO.","sino"],
+    ["CONTROL DE FUNCIONAMIENTO","CONTROL VÁLVULA INTERLOCK, AL ACCIONAR LA VÁLVULA INTERLOCK EL EQUIPO DEBE FRENARSE."],
+    ["CONTROL DE FUNCIONAMIENTO","CONTROL VÁLVULA API, REALIZAR INSPECCIÓN DEL CUELLO DE VÁLVULA DE CADA COMPARTIMIENTO."],
+    ["CONTROL DE FUNCIONAMIENTO","VÁLVULA DE CORTE DE EMERGENCIA, PRUEBE LA VALVULA DE CORETE EMERGENCIA DE LA CISTERNA."],
+    ["CONTROL DE FUNCIONAMIENTO","CONTROL Y FUNCIONAMIENTO VÁLVULA DE VENTEO DE LOS DIFERENTES COMPARTIMIENTOS."],
+    ["INSPECCIÓN PERIMETRAL","REVISIÓN DE VÁLVULAS DE PRESIÓN Y VACIO."],
+    ["INSPECCIÓN PERIMETRAL","VERIFICAR CONDICIÓN DE ESCALERILLA DE ACCESO SUPERIOR Y TAPAS SUPERIORES (INCLUYE TAPAS DOMO)."],
+    ["INSPECCIÓN PERIMETRAL","CONTROL FUGAS DE LÍQUIDO O PRODUCTO EN CAÑERÍAS, BRIDAS O EMPAQUES."],
+    ["INSPECCIÓN PERIMETRAL","CONTROL TAPAS DE TUBO PORTA MANGUERAS DE DESCARGA Y RODILLO."],
+    ["INSPECCIÓN PERIMETRAL","REVISIÓN Y/ O CAMBIO MANGUERA CÓNICA DE VENTEO."],
+  ].map(x => ({grupo:"ESTANQUE", sis:x[0], desc:x[1], tipo:x[2]||"apf"}));
+  return {R, C, E, T};
+}
+/* Planes de tareas tomados de Fracttal (Tareas > Plan de Tareas). Los checklists completos solo están
+   cargados donde hubo una OT de ejemplo; en el resto se completan desde Pautas > Editar. */
+const kmDe = n => { const m = String(n).match(/(\d{1,3}(?:\.\d{3})+)/); return m ? +m[1].replace(/\./g,"") : null; };
+/* Checklists de las tareas, leídos de Fracttal (Plan de Tareas > Tareas > SubTareas). Datos comprimidos:
+   FT_D = textos únicos; FT_I[plan][tarea] = [[bloque, descripción, tipo (s=Sí/No, v=Verificación, t=Texto), ciclos], ...]
+   Ciclos: "*N" = todos los ciclos 1..N; "2,4,6" = solo esos ciclos; vacío = siempre. */
+const FT_D = ["UNIDAD COMPLETA","LAVADO COMPLETO DEL EQUIPO","SISTEMAS DE FILTROS","REVISAR Y LIMPIAR EL ELEMENTO DEL FILTRO DE AIRE","REVISAR Y LIMPIAR EL FILTRO DE POLVO DE LA CALEFACCIÓN / VENTILACIÓN.","NIVELES DE FLUIDO","VERIFICAR EL NIVEL DE REFRIGERANTE, VERIFICAR ESTADO DE LIMPIEZA DEL LIQUIDO REFRIGERANTE CON REFRACTOMETRO.","VERIFICAR EL NIVEL EN EL DEPOSITO DE AdBlue.","FUGAS Y ESTADOS FISICO","VERIFICAR ESTADO FÍSICO Y FUGAS EN MOTOR, CAJA DE CAMBIO, RETARDADOR, EJES, DIRECCIÓN, BOMBA DE SERVODIRECCION, SISTEMA DE INCLINACIÓN DE CABINA,","VERIFICAR ESTANQUEIDAD, FUGAS Y ESTADO, DE LAS TUBERÍA DE ADMISIÓN DE AIRE ENTRE EL FILTRO DEL MISMO Y EL MOTOR.","VERIFICAR ESTANQUEIDAD, ESTADO Y FUGAS EN EL SISTEMA DE ESCAPE.","VERIFICAR ESTADO Y ESTANQUEIDAD DE TODOS LOS DEPOSITOS, AMORTIGUADORES, CUBIERTAS, GUARNICIONES, CAPERUZAS PROTECTORAS.","MOTOR","VERIFICAR ESTADO DE LA CORREA, COMPROBAR SI NERVIOS TRAPEZOIDALES ESTÁN DESGASTADOS O DAÑADOS Y REVISAR TENSORES Y POLEAS LOCAS","CHASIS Y CARROCERÍA","VERIFICAR ESTADO DE TODOS LOS CABLES Y TUBOS FLEXIBLES, CABLES DE SENSOR, VERIFICAR PUNTOS DE DESGASTE POR ROZAMIENTO Y QUE NO EXISTAN SECCIONES SUELTAS EN EL TENDIDO.","RUEDAS Y NEUMATICOS","VERIFICAR LA PRESIÓN DE RODADOS, INCLUIDA LA DE REPUESTO. REALIZAR ROTACION SI ES NECESARIO.","VERIFICAR APRIETE DE PERNOS DE RUEDA","VERIFICAR Y ENGRASAR EL ENGANCHE DEL REMOLQUE (MUELA), SOLO EN CAMIONES.","SISTEMA ACOPLE TRACTO","REVISION VISUAL Y ENGRASAR LA QUINTA RUEDA.","VERIFICAR PRESENCIA DE DAÑOS O FUGAS EN LOS FUELLES NEUMÁTICOS.","COMPROBAR EL ESTADO DEL SISTEMA MECÁNICO DE LA DIRECCIÓN. REVISAR BARRAS CORTAS, LARGAS Y JUEGO DE PASADORES DE MUÑONES.","REAPRETAR TORNILLOS Y TUERCAS DEL CHASIS, RUEDAS Y CARROCERÍAS.","TRANSMISION Y TREN MOTRIZ","VERIFICAR SI EXISTE JUEGO EN CRUCETA DE CARDAN Y REVISION EN CAMIONES DE RODAMIENTO CARDAN.","LUBRICAR Y VERIFICAR ENGANCHE DE CABINA","SISTEMA ELECTRICO","VERIFICAR FUNCIONAMIENTO CORTACORRIENTE","FRENOS","REVISAR VISUALMENTE ESTADO DE PASTILLAS DE FRENO","DRENAR ESTANQUE DE AIRE FRENOS","CONTROL DE FUNCIONAMIENTO","VERIFICAR FUNCIONAMIENTO DE BOCINA, SISTEMA DE SEÑALES Y TESTIGOS DE CONTROL EN EL TABLERO DE INSTRUMENTOS.","VERIFICAR EL SISTEMA DE LIMPIA PARABRISAS.","REVISIÓN DE EQUIPOS","OBSERVACIÓN:","OPERACIÓN DE FLUIDOS","CAMBIO ACEITE DE MOTOR (CAMBIO GOLILLA TAPON DE ACEITE SI APLICA)","REEMPLAZO DEL FILTRO DE ACEITE DEL MOTOR","REEMPLAZAR FILTRO DE COMBUSTIBLE Y FILTRO FINO DE COMBUSTIBLE.","REEMPLAZO DE ELEMENTO FILTRANTE DE PREFILTRO DE COMBUSTIBLE, CON SEPARADOR DE AGUA (FILTRO RACOR)","REVISAR EL ELEMENTO DEL FILTRO DE AIRE","CAMBIAR EL FILTRO DE POLVO DE LA CALEFACCIÓN / VENTILACIÓN.","CAMBIAR EL CARTUCHO GRANULADO DEL SECADOR DE AIRE COMPRIMIDO.","ROTACION RUEDAS EJE DELANTERO SOBRE EJE","ROTACION RUEDAS EJE DELANTERO SOBRE LLANTA","VERIFICAR Y CALIBRAR MORDAZA QUINTA RUEDA.","ROTAR POSICION DE BATERIAS Y REVISAR ESTADO DE CONECCIONES","HERRAMIENTA DIAGNÓSTICO","REVISION Y DIAGNOSTICO DEL SISTEMA CON SCANNER","REEMPLAZO DE FILTRO CICLONICO DE VENTILACION DEL CARTER","CAMBIO DE ACEITE DEL RETARDADOR","REEMPLAZAR EL FILTRO DEL RETARDADOR","CAMBIO ACEITE DE CAJA DE CAMBIOS","CAMBIO ACEITE DEL EJE TRASERO","REEMPLAZAR EL LIQUIDO REFRIGERANTE","CAMBIO DEL PREFILTRO DE ADBLUE","CAMBIO DEL FILTRO DE AIRE","EJE DIFERENCIAL","CAMBIAR ACEITE DIFERENCIAL","DIRECCION","CAMBIAR ACEITE DIRECCIÓN HIDRÁULICA","CAMBIAR ACEITE MOTOR","CAJA DE CAMBIOS","CAMBIAR ACEITE TRANSMISIÓN CAJA ALLISON","CAMBIAR FILTRO DE AIRE","SISTEMA DE COMBUSTIBLE","CAMBIAR FILTRO DE COMBUSTIBLE","CAMBIAR FILTRO DE DIRECCIÓN","CAMBIAR FILTRO DE REFRIGERANTE","CAMBIAR FILTRO SECADOR DE AIRE","CAMBIAR FILTRO SEPARADOR DE COMBUSTIBLE Y AGUA","CAMBIAR FILTRO DE ACEITE","CAMBIAR LÍQUIDO REFRIGERANTE","CAMBIO CORREA ACCESORIOS","COMPROBAR EL ESTADO DEL ESLABÓN DE ARRASTRE DEL SISTEMA DE DIRECCIÓN","COMPROBAR EL ESTADO Y LA TENSIÓN DE LAS CORREAS DE TRANSMISIÓN","SISTEMA DE FRENOS","COMPROBAR EL FUNCIONAMIENTO DE LOS FRENOS DE ESTACIONAMIENTO","COMPROBAR EL FUNCIONAMIENTO Y ESTADO DE LA VÁLVULA BENDIX DEL SISTEMA DE FRENOS DE AIRE","COMPROBAR EL FUNCIONAMIENTO Y ESTADO DEL ACOPLAMIENTO Y PLACA DE MONTAJE DEL PEDAL DE FRENOS","SISTEMA NEUMATICO (AIRE)","COMPROBAR EL FUNCIONAMIENTO Y VERIFICAR EL ESTADO DEL SECADOR DE AIRE","COMPROBAR LA ESTANQUEIDAD DEL SISTEMA DE AIRE COMPRIMIDO Y DRENAR DEPÓSITOS DE AIRE","REALIZAR APRIETE DE: TOPES DE EJES, SOPORTES DE ESCAPE, BARRAS TENSORAS Y ESTANQUE COMBUSTIBLE","VERIFICAR LOS NIVELES DE CAJA Y DIFERENCIAL","VERIFICAR APRIETE DE LOS SUJETADORES DE LOS SOPORTES DEL MOTOR","EJES Y RUEDAS","VERIFICAR EL JUEGO DE LAS MASAS DELANTERAS Y TRASERAS","VERIFICAR EL JUEGO DE VÁLVULAS EN EL MOTOR","REVISAR EL NIVEL DEL REFRIGERANTE","SUSPENSION","REVISAR EL PAR DE APRIETE DE COMPONENTES Y SUJECIONES DE LA SUSPENSIÓN DELANTERA Y TRASERA","REVISAR EL PAR DE APRIETE DE LAS TUERCAS DE RUEDA","VERIFICAR EL PAR DE APRIETE DE LOS PERNOS \"U\" DE LA SUSPENSIÓN","REVISAR ESTANQUEIDAD DEL MOTOR Y DE LAS CONEXIONES Y DUCTOS DEL SISTEMA DE ADMISIÓN DE AIRE, LUBRICACIÓN, REFRIGERACIÓN Y EGR","DESMONTAR Y MONTAR LOS INYECTORES, PARA COMPROBAR ESTADO Y FUNCIONAMIENTO.","DRENAR EL FILTRO SEPARADOR DE COMBUSTIBLE Y AGUA","ENGRASAR EL COLLARÍN DEL EMBRAGUE EATON FULLER","ENGRASAR EL EJE CARDÁN","SISTEMA ACOPLE QUINTA RUEDA","ENGRASAR LA QUINTA RUEDA (TRACTO)","ENGRASAR LA SUSPENSIÓN","ENGRASAR PIVOTE DE DIRECCIÓN","ENGRASAR RÓTULAS DE LA BARRA DE ACOPLAMIENTO","INSPECCIONAR EL ESTADO DEL COMPRESOR DE AIRE","INSPECCIONAR Y LUBRICAR LA VÁLVULA DEL PEDAL DE FRENO","CHEQUEAR NIVEL DE ACEITE DE LOS CUBOS DE RUEDA DEL EJE DELANTERO","CHEQUEAR NIVEL DEL LÍQUIDO DE LA DIRECCIÓN HIDRÁULICA","CABINA","REGULAR JUEGO PEDAL DE EMBRAGUE","REVISAR ACEITE DE CUBOS DE RUEDA DELANTERA","REVISAR LA TAPA DE ALIVIO DE PRESIÓN DEL RADIADOR","SISTEMA DE ESCAPE","VERIFICAR EL APRIETE DEL MÚLTIPLE DE ESCAPE","VERIFICAR EL DESGASTE DE LOS BUJES SUPERIORES E INFERIORES DEL PASADOR DEL MUÑÓN","VERIFICAR EL ESTADO DE LAS CONEXIONES DEL CABLEADO DEL ALTERNADOR, BATERÍAS Y MOTOR DE PARTIDA","VERIFICAR EL ESTADO DE LOS RESPIRADEROS DE LA TRANSMISIÓN (EATON FULLER)","VERIFICAR EL ESTADO DE SATURACIÓN DEL FILTRO DE AIRE","VERIFICAR EL ESTADO DEL FILTRO REGULADOR DE AIRE DE LA TRANSMISIÓN (EATON FULLER)","VERIFICAR EL ESTADO DEL RADIADOR","VERIFICAR EL ESTADO DEL RESPIRADERO DEL ESTANQUE DE COMBUSTIBLE","SISTEMA DE AIRE ACONDICIONADO","VERIFICAR EL ESTADO DEL SISTEMA DE AIRE ACONDICIONADO","VERIFICAR EL ESTADO DEL TURBOALIMENTADO Y DEL ENFRIADOR DE AIRE O INTERCOOLER","VERIFICAR EL ESTADO Y EL JUEGO DEL EJE CARDÁN Y CRUCETAS","VERIFICAR EL ESTADO Y LA ESTANQUEIDAD DEL SISTEMA DE ESCAPE","VERIFICAR EL ESTADO Y LIMPIAR EL RESPIRADERO DEL CÁRTER MOTOR.","VERIFICAR FUNCIONAMIENTO FRENO MOTOR","VERIFICAR VISUALMENTE EL ESTADO DEL SISTEMA DE ACCIONAMIENTO DEL VENTILADOR HORTON","OBSERVACIÓN O COMENTARIOS","Engrase de cardán (cruzetas y brida deslizante). Modelos aplicables.","Reapriete de pernos, tuercas de chasis y carrocería.","Rotación de Neumáticos","Sistema de inyección. Cuando en la pantalla aparezca el mensaje \" Inyector Maintenance Required\" agregar limpia inyector.","Inspección de pedal del freno y articulación freno de estacionamiento.","Verificar desgaste pastillas y discos de frenos.","Verificar nivel líquido de frenos y embrague.","Verificar nivel liquido de la dirección hidráulica (Si aplica).","Verificar aceite de la transmisión automática","Verificar funcionamiento de luces, bocina y plumillas.","Verificar estado neumáticos (Verificar estado, rotación, balanceo y presión de inflado).","Observaciones","VERIFICAR VISUALMENTE LA FIJACION DE LOS MAXIS DE FRENO","VERIFICAR VISUALMENTE LOS PASADORES DEL ACCIONAMIENTO DE LA CHICHARRA DE FRENO","REVISION VISUAL DE SUJECIONES DE LA SUSPENSIÓN DELANTERA Y TRASERA","REVISION VISUAL DE APRIETE DE LAS TUERCAS DE RUEDA","VERIFICAR APRIETE DE LOS PERNOS \"U\" DE LA SUSPENSIÓN","VERIFICAR VISUALMENTE EL ESTADO DEL SISTEMA DE ACCIONAMIENTO DEL VENTILADOR","VERIFICAR VISUALMENTE EL ESTADO DE LOS PERNOS DE CAJA ACCESORIOS Y PORTAEXTINTORES","RENOVAR EL FILTRO DEL AdBlue.","LUBRICACION","LUBRICAR Y ENGRASAR PASADORES DE MUÑON, PASADORES DE BUJE, PAQUETE DE RESORTES Y BRIDA DESLIZANTE CARDAN.","ROTACION RUEDAS EJE DELANTEROS SOBRE LLANTA","Obligatorio:","REEMPLAZO DE LIQUIEDO REFRIGERANTE","REGULACION VALVULAS","REEMPLAZO DE PREFILTRO DE COMBUSTIBLE.","REEMPLAZO LIQUIDO DIRECCION","OBSERVACIÓN","REEMPLAZO LIQUIDO REFRIGERANTE","SISTEMA DE MOTOBOMBA","ENGRASE DE PARTES MÓVILES MOTOBOMBA","VERIFICAR CONDICION DEL CARDAN DE MOTOBOMBA.","VERIFICAR FUNCIONAMIENTO DE MOTOR DE CARRETE","ESTRUCTURA","VERIFICAR APRIETE O ESTADO DE LOS GUARDAFANGOS.","INSPECCIONAR SOPORTES FIJACIONES ESTANQUE Y ESTADO DE LIMONES","ELECTRÓNICA","CONTROL ESTADO DE SENSORES DE SOBRELLENADO","REVISION DE TAPAS DOMO, VERIFICAR FILTRACIONES, VALVULA PRESION Y VACIO QUE ESTE EN BUEN ESTADO, ESTADO DE PINTURA DE FLECHAS, PRESENCIA SELLOS EN PASILLO Y ESTANQUES.","SISTEMA NEUMÁTICO","CONTROL DE FUGAS Y ROCES EN CAÑERÍAS Y TECALANES","LUCES PRINCIPALES","INSPECCIÓN DEL CORRECTO FUNCIONAMIENTO DEL ESTADO DE LUCES Y REFLECTORES.","CONTROLES EXTERIORES","VERIFICAR ESTADO GRÁFICAS.","CONTROL ESTADO PINTURA EQUIPO.","VERIFICAR ESTADO DE CONECTORES DE AIRE Y ELÉCTRICOS.","VERIFICAR O LIMPIAR LA LENTE EN CÁMARAS DE VIGILANCIA.","VERIFICAR ESTADO DE RELOJES DE CONTROL DE PRESIÓN DE AIRE Y VÁLVULA REGULADORA.","CONTROL FUNCIONAMIENTO Y LUBRICACION DE TODAS LAS VÁLVULA INTERLOCK DEL EQUIPO.","CONTROL VÁLVULA INTERLOCK, AL ACCIONAR LA VÁLVULA INTERLOCK EL EQUIPO DEBE FRENARSE.","CONTROL VÁLVULA API, REALIZAR INSPECCIÓN DEL CUELLO DE VÁLVULA DE CADA COMPARTIMIENTO.","VÁLVULA DE CORTE DE EMERGENCIA, PRUEBE LA VALVULA DE CORTE DE LA CISTERNA.","CONTROL Y FUNCIONAMIENTO VÁLVULA DE VENTEO DE LOS DIFERENTES COMPARTIMIENTOS.","INSPECCIÓN PERIMETRAL","REVISIÓN DE VÁLVULAS DE PRESIÓN Y VACIO.","VERIFICAR CONDICIÓN DE ESCALERILLA DE ACCESO SUPERIOR Y TAPAS SUPERIORES (INCLUYE TAPAS DOMO).","CONTROL FUGAS DE LÍQUIDO O PRODUCTO EN CAÑERÍAS, BRIDAS O EMPAQUES.","CONTROL TAPAS DE TUBO PORTA MANGUERAS DE DESCARGA Y RODILLO.","REVISIÓN Y/ O CAMBIO MANGUERA CÓNICA DE VENTEO.","OBSERVACION:","ENGRASE DE PARTES MÓVILES MOTOBOMBA.","CONTROL ESTADO DE SENSORES DE SOBRE LLENADO","CONTROL DE FUGAS Y ROCES EN CAÑERÍAS Y TECALANES.","VÁLVULA DE CORTE DE EMERGENCIA, PRUEBE LA VALVULA DE CORETE EMERGENCIA DE LA CISTERNA.","LIMPIEZA CHASIS","REVISION DE MAZA Y RODAMIENTO DE MAZA, CAMBIO SI ES NECESARIO (240.000)","CAMBIO RODAMIENTO DE MAZA (480.000)","ENGRASE RODAMIENTO DE MAZA","CAMBIO RETEN DE MAZA","REVISAR TAPA, SEGURO Y TUERCA DE MAZA Y CAMBIAR EN CASO DE SER NECESARIO","REVISION COMPLETA DE SISTEMA DE FRENOS, LEVAS O EXCENTRICAS, BUJES INTERIOR Y EXTERIOR DE LEVA FRENO","REVISION Y/O CAMBIO PATINES DE FRENO, RODILLO Y RESORTES","REVISION Y MEDICION DE TAMBORES DE FRENO, CAMBIO SI ES NECESARIO","LUBRICACIÓN / REVISIÓN NIVELES","ENGRASE DE PARTES MÓVILES.","INSPECCIONAR EL CHASIS Y FIJACIONES BAJO ESTANQUE DE PRODUCTO (FISURA, DAÑO, APRIETE).","REVISION ESTADO DE LOS NEUMATICOS, DESGASTE Y PRESION.","REVISION JUEGO DE MAZAS EN TODOS LOS EJES","REVISIÓN VISUAL DE ESTADO DEL PERNO REY, REAPRETAR TUERCAS DE FIJACIÓN SI ES NECESARIO.","VERIFICAR DESGASTE DEL PERNO REY CON REGLA.","SUSPENSIÓN","REVISIÓN DEL ESTADO DEL SISTEMA DE SUSPENSIÓN. CONTROLAR ESTADO Y SEÑALES DE DESGASTE DE LOS AMORTIGUADORES, PULMONES Y TORNILLOS; EN EL CASO DE EQUIPOS ANTIGUOS REVISAR PAQUETE DE RESORTES.","CONTROL DEL DESGASTE DE GOLILLAS DE TEFLÓN SUSPENSIÓN BUGIE Y EJE ALZABLE.","CONTROL Y FUNCIONAMIENTO DE LOS CILINDROS NEUMÁTICOS (BARANDA).","CONTROL DE VÁLVULAS DE EJE ALZABLE.","CONTROL DE FUGAS Y ROCES EN CAÑERÍAS, TECALANES Y DEPÓSITOS DE AIRE.","DRENAJE DEL DEPÓSITO DE AIRE.","COMPROBAR EL CORRECTO FUNCIONAMIENTO DEL SISTEMA DE FRENOS.","INSPECCIONAR EL ESTADO DEL CIRCUITO DE AIRE DEL SISTEMA DE FRENOS, DETECCIÓN DE FUGAS.","REVISIÓN VISUAL DESGASTE BALATAS O PASTILLAS Y DISCO DE FRENO.","CONTROL VÁLVULA API, REALIZAR INSPECCIÓN DEL CUELLO DE VÁLVULA DE CADA COMPARTIMIENTO. REVISAR SI EXISTEN TRIZADURAS EN VISORES.","VÁLVULA DE CORTE DE EMERGENCIA, PRUEBE LAS PALANCAS DE ADELANTE Y DE ATRAS DE LA CISTERNA .","VERIFICAR CONDICIÓN DE ESCALERILLA DE ACCESO SUPERIOR Y TAPAS SUPERIORES.","REVISAR SOPORTE DE EXTINTORES, CAJAS, BARRERAS ANTICICLISTA, PORTEREPUESTO, ETC"];
+const FT_I = {"f-man20":{"MANTENIMIENTO DE FAENA":[[0,1,"s",null],[2,3,"s",null],[2,4,"s",null],[5,6,"v",null],[5,7,"v",null],[8,9,"v",null],[8,10,"v",null],[8,11,"v",null],[8,12,"v",null],[13,14,"v",null],[15,16,"v",null],[17,18,"v",null],[17,19,"s",null],[15,20,"v",null],[21,22,"v",null],[15,23,"v",null],[15,24,"v",null],[15,25,"s",null],[26,27,"v",null],[15,28,"s",null],[29,30,"v",null],[31,32,"v",null],[31,33,"s",null],[34,35,"v",null],[34,36,"v",null],[37,38,"t",null]],"MANTENIMIENTO PROGRAMADO 20.000":[[39,40,"s","2,4,6,8,10,12,14,16,18"],[2,41,"s","2,4,6,8,10,12,14,16,18"],[2,42,"s","*18"],[2,43,"s","*18"],[2,44,"s","*18"],[2,45,"s","6,12,18"],[2,46,"s","6,12,18"],[5,6,"v","*18"],[5,7,"v","*18"],[8,9,"v","*18"],[8,10,"v","*18"],[8,11,"v","*18"],[8,12,"v","*18"],[13,14,"v","*18"],[15,16,"v","*18"],[17,18,"v","*18"],[17,47,"s","1,5,9,13,17"],[17,48,"s","3,7,11,15"],[15,20,"v","*18"],[21,22,"v","*18"],[21,49,"v","6,12,18"],[15,23,"v","*18"],[15,24,"v","*18"],[15,25,"s","*18"],[26,27,"v","*18"],[15,28,"s","*18"],[15,50,"s","1,3,5,7,9,11,13,15,17"],[29,30,"v","*18"],[31,32,"v","*18"],[31,33,"s","*18"],[34,35,"v","*18"],[34,36,"v","*18"],[51,52,"s","*18"],[37,38,"t","*18"]],"MANTENIMIENTO PROGRAMADO 240.000":[[2,53,"s",null],[37,38,"t",null]],"MANTENIMIENTO PROGRAMADO 360.000":[[39,54,"s",null],[2,55,"s",null],[39,56,"s",null],[39,57,"s",null],[37,38,"t",null]],"MANTENIMIENTO PROGRAMADO 360.000 REFRIGERANTE":[[39,58,"s",null],[37,38,"t",null]],"REEMPLAZO DE AMBOS FILTROS DE ADBLUE 120.000":[[2,59,"s",null],[37,38,"t",null]],"REEMPLAZO FILTRO DE AIRE 120.000":[[2,60,"s",null],[37,38,"t",null]]},"f-m106":{"MANTENIMIENTO FREIGHTLINER M2 106 6X2":[[61,62,"s","3,6,9"],[63,64,"s","3,6,9"],[13,65,"s","*9"],[66,67,"s","3,6,9"],[13,68,"s","*9"],[69,70,"s","*9"],[63,71,"s","2,4,6,8"],[13,72,"s","2,4,6,8"],[13,73,"s","2,4,6,8"],[69,74,"s","*9"],[13,75,"s","*9"],[13,76,"s","6,9"],[13,77,"s","6,9"],[63,78,"v","*9"],[13,79,"v","*9"],[80,81,"v","*9"],[80,82,"v","*9"],[80,83,"v","*9"],[84,85,"v","*9"],[84,86,"v","*9"],[69,87,"v","2,4,6,8"],[66,88,"v","1,2,3,5,6,7,9"],[13,89,"v","2,4,6,8"],[90,91,"v","*9"],[13,92,"v","6,9"],[13,93,"v","*9"],[94,95,"v","2,4,6,8"],[90,96,"v","*9"],[94,97,"v","2,4,6,8"],[13,98,"v","*9"],[13,99,"v","6,9"],[69,100,"s","1,3,5,7,9"],[66,101,"s","*9"],[26,102,"s","*9"],[103,104,"s","*9"],[94,105,"s","*9"],[63,106,"s","*9"],[26,107,"s","*9"],[84,108,"v","*9"],[80,109,"v","*9"],[90,110,"v","*9"],[63,111,"v","*9"],[112,113,"v","2,4,6,8"],[90,114,"v","*9"],[13,115,"v","*9"],[116,117,"v","4,8"],[63,118,"v","2,4,6,8"],[29,119,"v","*9"],[66,120,"v","2,4,6,8"],[13,121,"v","*9"],[66,122,"v","2,4,6,8"],[13,123,"v","*9"],[69,124,"v","2,4,6,8"],[125,126,"v","*9"],[13,127,"v","2,4,6,8"],[26,128,"v","*9"],[116,129,"v","*9"],[13,130,"v","*9"],[13,131,"v","*9"],[13,132,"v","2,4,6,8"],[0,133,"t","*9"]]},"f-hilux":{"MANTENIMIENTO PROGRAMADO CAMIONETAS":[[26,134,"s","*20"],[15,135,"s","*20"],[90,136,"s","*20"],[69,137,"s","*20"],[80,138,"v","*20"],[80,139,"v","*20"],[5,140,"v","*20"],[5,141,"v","*20"],[5,142,"v","*20"],[0,143,"v","*20"],[90,144,"t","*20"],[0,145,"t","*20"]]},"f-fl15":{"MANTENIMIENTO FAENA":[[80,81,"v",null],[31,146,"s",null],[31,147,"s",null],[69,87,"v",null],[13,89,"v",null],[90,91,"v",null],[13,93,"v",null],[94,148,"v",null],[90,149,"v",null],[94,150,"v",null],[13,98,"v",null],[26,102,"s",null],[103,104,"s",null],[94,105,"s",null],[63,106,"s",null],[26,107,"s",null],[90,110,"v",null],[63,111,"v",null],[90,114,"v",null],[13,115,"v",null],[116,117,"v",null],[63,118,"v",null],[29,119,"v",null],[66,120,"v",null],[13,121,"v",null],[66,122,"v",null],[13,123,"v",null],[69,124,"v",null],[125,126,"v",null],[13,127,"v",null],[26,128,"v",null],[116,129,"v",null],[13,130,"v",null],[13,131,"v",null],[13,151,"v",null],[0,152,"t",null],[0,133,"t",null]],"MANTENIMIENTO PROGRAMADO 15.000":[[39,40,"s","2,4,6,8,10,12,14,16,18,20,22,24"],[2,41,"s","2,4,6,8,10,12,14,16,18,20,22,24"],[2,42,"s","*24"],[2,43,"s","*24"],[2,44,"s","*24"],[2,45,"s","8,16,24"],[2,46,"s","8,16,24"],[2,153,"s","8,16,24"],[5,6,"v","*24"],[5,7,"v","*24"],[154,155,"s","*24"],[8,9,"v","*24"],[8,10,"v","*24"],[8,11,"v","*24"],[8,12,"v","*24"],[13,14,"v","*24"],[15,16,"v","*24"],[17,18,"v","*24"],[17,47,"s","1,5,9,13,17,21"],[17,156,"s","3,7,11,15,19,23"],[15,20,"v","*24"],[21,22,"v","*24"],[21,49,"v","8,16,24"],[15,23,"v","*24"],[15,24,"v","*24"],[15,25,"s","*24"],[26,27,"v","*24"],[15,28,"s","*24"],[15,50,"s","1,3,5,7,9,11,13,15,17,19,21,23"],[29,30,"v","*24"],[31,32,"v","*24"],[31,33,"s","*24"],[34,35,"v","*24"],[34,36,"v","*24"],[157,52,"s","*24"],[37,38,"t","*24"]],"MANTENIMIENTO PROGRAMADO 240.000":[[39,158,"s",null],[37,38,"t",null]],"MANTENIMIENTO PROGRAMADO 360.000":[[39,56,"s",null],[39,57,"s",null],[37,38,"t",null]],"REEMPLAZO FILTRO DE AIRE 120.000":[[2,60,"s",null],[37,38,"t",null]]},"f-mb15":{"MANTENIMIENTO DE FAENA":[[0,1,"s",null],[2,3,"s",null],[2,4,"s",null],[5,6,"v",null],[5,7,"v",null],[8,9,"v",null],[8,10,"v",null],[8,11,"v",null],[8,12,"v",null],[13,14,"v",null],[15,16,"v",null],[17,18,"v",null],[17,19,"s",null],[15,20,"v",null],[21,22,"v",null],[15,23,"v",null],[15,24,"v",null],[15,25,"s",null],[26,27,"v",null],[15,28,"s",null],[29,30,"v",null],[31,32,"v",null],[31,33,"s",null],[34,35,"v",null],[34,36,"v",null],[37,38,"t",null]],"MANTENIMIENTO PROGRAMADO 15.000":[[39,40,"s","2,4,6,8,10,12,14,16,18,20,22,24"],[2,41,"s","2,4,6,8,10,12,14,16,18,20,22,24"],[2,42,"s","*24"],[2,43,"s","*24"],[2,44,"s","*35"],[2,45,"s","8,16,24"],[2,46,"s","8,16,24"],[2,153,"s","8,16,24"],[5,6,"v","*24"],[5,7,"v","*24"],[154,155,"s","*24"],[8,9,"v","*24"],[8,10,"v","*24"],[8,11,"v","*24"],[8,12,"v","*24"],[13,14,"v","*24"],[15,16,"v","*24"],[17,18,"v","*24"],[17,47,"s","1,5,9,13,17,21"],[17,156,"s","3,7,11,15,19,23"],[15,20,"v","*24"],[21,22,"v","*24"],[21,49,"v","8,16,24"],[15,23,"v","*24"],[15,24,"v","*24"],[15,25,"s","*24"],[26,27,"v","*24"],[15,28,"s","*24"],[15,50,"s","1,3,5,7,9,11,13,15,17,19,21,23"],[29,30,"v","*24"],[31,32,"v","*24"],[31,33,"s","*24"],[34,35,"v","*24"],[34,36,"v","*24"],[157,52,"s","*35"],[37,38,"t","*24"]],"MANTENIMIENTO PROGRAMADO 240.000":[[39,54,"s",null],[2,55,"s",null],[37,38,"t",null]],"MANTENIMIENTO PROGRAMADO 240.000 REFRIGERANTE":[[39,58,"s",null],[37,38,"t",null]],"MANTENIMIENTO PROGRAMADO 360.000":[[39,56,"s",null],[39,57,"s",null],[37,38,"t",null]],"REEMPLAZO FILTRO DE AIRE 120.000":[[2,60,"s",null],[37,38,"t",null]]},"f-mb20":{"MANTENIMIENTO DE FAENA":[[0,1,"s",null],[2,3,"s",null],[2,4,"s",null],[5,6,"v",null],[5,7,"v",null],[8,9,"v",null],[8,10,"v",null],[8,11,"v",null],[8,12,"v",null],[13,14,"v",null],[15,16,"v",null],[17,18,"v",null],[17,19,"s",null],[15,20,"v",null],[21,22,"v",null],[15,23,"v",null],[15,24,"v",null],[15,25,"s",null],[26,27,"v",null],[15,28,"s",null],[29,30,"v",null],[31,32,"v",null],[31,33,"s",null],[34,35,"v",null],[34,36,"v",null],[37,38,"t",null]],"MANTENIMIENTO PROGRAMADO 120.000 VALVULAS":[[13,159,"s",null],[37,38,"t",null]],"MANTENIMIENTO PROGRAMADO 20.000":[[39,40,"s","2,4,6,8,10,12,14,16,18"],[2,41,"s","2,4,6,8,10,12,14,16,18"],[2,42,"s","*18"],[2,160,"s","2,4,6,8,10,12,14,16,18"],[2,43,"s","*18"],[2,44,"s","*18"],[2,45,"s","6,12,18"],[2,46,"s","6,12,18"],[5,6,"v","*18"],[5,7,"v","*18"],[154,155,"s","*18"],[8,9,"v","*18"],[8,10,"v","*18"],[8,11,"v","*18"],[8,12,"v","*18"],[13,14,"v","*18"],[15,16,"v","*18"],[17,18,"v","*18"],[17,47,"s","1,5,9,13,17"],[17,48,"s","3,7,11,15"],[15,20,"v","*18"],[21,22,"v","*18"],[21,49,"v","6,12,18"],[15,23,"v","*18"],[15,24,"v","*18"],[15,25,"s","*18"],[26,27,"v","*18"],[15,28,"s","*18"],[15,50,"s","1,3,5,7,9,11,13,15,17"],[29,30,"v","*18"],[31,32,"v","*18"],[31,33,"s","*18"],[34,35,"v","*18"],[34,36,"v","*18"],[157,52,"s","*18"],[37,38,"t","*18"]],"MANTENIMIENTO PROGRAMADO 240.000 REFRIGERANTE":[[39,58,"s",null],[37,38,"t",null]],"MANTENIMIENTO PROGRAMADO 360.000":[[39,56,"s",null],[39,57,"s",null],[37,38,"t",null]],"MANTENIMIENTO PROGRAMADO 480.000 DIRECCION":[[5,161,"s",null],[157,162,"t",null]],"REEMPLAZO FILTRO DE AIRE 120.000":[[2,60,"s",null],[37,38,"t",null]],"REEMPLAZO PREFILTRO ADBLUE 120.000":[[2,59,"s",null],[37,38,"t",null]]},"f-atego":{"MANTENIMIENTO DE FAENA":[[0,1,"s",null],[2,3,"s",null],[2,4,"s",null],[5,6,"v",null],[5,7,"v",null],[8,9,"v",null],[8,10,"v",null],[8,11,"v",null],[8,12,"v",null],[13,14,"v",null],[15,16,"v",null],[17,18,"v",null],[17,19,"s",null],[15,20,"v",null],[21,22,"v",null],[15,23,"v",null],[15,24,"v",null],[15,25,"s",null],[26,27,"v",null],[15,28,"s",null],[29,30,"v",null],[31,32,"v",null],[31,33,"s",null],[34,35,"v",null],[34,36,"v",null],[37,38,"t",null]],"MANTENIMIENTO PROGRAMADO 20.000":[[39,40,"s","*18"],[2,41,"s","*18"],[2,42,"s","*18"],[2,160,"s","*18"],[2,43,"s","*18"],[2,44,"s","*18"],[2,45,"s","6,12,18"],[2,46,"s","6,12,18"],[5,6,"v","*18"],[5,7,"v","*18"],[154,155,"s","*18"],[8,9,"v","*18"],[8,10,"v","*18"],[8,11,"v","*18"],[8,12,"v","*18"],[13,14,"v","*18"],[15,16,"v","*18"],[17,18,"v","*18"],[17,47,"s","1,5,9,13,17"],[17,48,"s","3,7,11,15"],[15,20,"v","*18"],[15,23,"v","*18"],[15,24,"v","*18"],[15,25,"s","*18"],[26,27,"v","*18"],[15,28,"s","*18"],[15,50,"s","1,3,5,7,9,11,13,15,17"],[29,30,"v","*18"],[31,32,"v","*18"],[31,33,"s","*18"],[34,35,"v","*18"],[34,36,"v","*18"],[157,52,"s","*18"],[37,38,"t","*18"]],"MANTENIMIENTO PROGRAMADO 240.000":[[39,56,"s",null],[39,57,"s",null],[37,38,"t",null]],"MANTENIMIENTO PROGRAMADO 240.000 REFRIGERANTE":[[39,58,"s",null],[37,38,"t",null]],"MANTENIMIENTO PROGRAMADO 360.000 DIRECCION":[[5,161,"s",null],[157,162,"t",null]],"MANTENIMIENTO PROGRAMADO 60.000 VALVULAS":[[13,159,"s",null],[37,38,"t",null]],"REEMPLAZO FILTRO DE AIRE 120.000":[[2,60,"s",null],[37,38,"t",null]],"REEMPLAZO PREFILTRO ADBLUE 60.000":[[2,59,"s",null],[37,38,"t",null]]},"f-sc15":{"MANTENIMIENTO DE FAENA":[[0,1,"s",null],[2,3,"s",null],[2,4,"s",null],[5,6,"v",null],[5,7,"v",null],[8,9,"v",null],[8,10,"v",null],[8,11,"v",null],[8,12,"v",null],[13,14,"v",null],[15,16,"v",null],[17,18,"v",null],[17,19,"s",null],[15,20,"v",null],[21,22,"v",null],[15,23,"v",null],[15,24,"v",null],[15,25,"s",null],[26,27,"v",null],[15,28,"s",null],[29,30,"v",null],[31,32,"v",null],[31,33,"s",null],[34,35,"v",null],[34,36,"v",null],[37,38,"t",null]],"MANTENIMIENTO PROGRAMADO 120.000":[[39,54,"s",null],[2,55,"s",null],[37,38,"t",null]],"MANTENIMIENTO PROGRAMADO 15.000":[[39,40,"s","2,4,6,8,10,12,14,16,18,20,22,24"],[2,41,"s","2,4,6,8,10,12,14,16,18,20,22,24"],[2,42,"s","*24"],[2,160,"s","2,4,6,8,10,12,14,16,18,20,22,24"],[2,43,"s","*24"],[2,44,"s","*24"],[2,45,"s","8,16,24"],[2,46,"s","8,16,24"],[2,153,"s","8,16,24"],[5,6,"v","*24"],[5,7,"v","*24"],[154,155,"s","*24"],[8,9,"v","*24"],[8,10,"v","*24"],[8,11,"v","*24"],[8,12,"v","*24"],[13,14,"v","*24"],[15,16,"v","*24"],[17,18,"v","*24"],[17,47,"s","1,5,9,13,17,21"],[17,156,"s","3,7,11,15,19,23"],[15,20,"v","*24"],[21,22,"v","*24"],[21,49,"v","8,16,24"],[15,23,"v","*24"],[15,24,"v","*24"],[15,25,"s","*24"],[26,27,"v","*24"],[15,28,"s","*24"],[15,50,"s","1,3,5,7,9,11,13,15,17,19,21,23"],[29,30,"v","*24"],[31,32,"v","*24"],[31,33,"s","*24"],[34,35,"v","*24"],[34,36,"v","*24"],[157,52,"s","*24"],[37,38,"t","*24"]],"MANTENIMIENTO PROGRAMADO 240.000 REFRIGERANTE":[[157,163,"s",null],[37,38,"t",null]],"MANTENIMIENTO PROGRAMADO 360.000":[[39,56,"s",null],[39,57,"s",null],[37,38,"t",null]],"REEMPLAZO FILTRO DE AIRE 120.000":[[2,60,"s",null],[37,38,"t",null]],"REEMPLAZO PREFILTRO ADBLUE 120.000":[[2,59,"s",null],[37,38,"t",null]]},"f-sc20":{"MANTENIMIENTO DE FAENA":[[0,1,"s",null],[2,3,"s",null],[2,4,"s",null],[5,6,"v",null],[5,7,"v",null],[8,9,"v",null],[8,10,"v",null],[8,11,"v",null],[8,12,"v",null],[13,14,"v",null],[15,16,"v",null],[17,18,"v",null],[17,19,"s",null],[15,20,"v",null],[21,22,"v",null],[15,23,"v",null],[15,24,"v",null],[15,25,"s",null],[26,27,"v",null],[15,28,"s",null],[29,30,"v",null],[31,32,"v",null],[31,33,"s",null],[34,35,"v",null],[34,36,"v",null],[37,38,"t",null]],"MANTENIMIENTO PROGRAMADO 120.000":[[39,54,"s",null],[2,55,"s",null],[37,38,"t",null]],"MANTENIMIENTO PROGRAMADO 20.000":[[39,40,"s","2,4,6,8,10,12,14,16,18"],[2,41,"s","2,4,6,8,10,12,14,16,18"],[2,42,"s","*18"],[2,160,"s","2,4,6,8,10,12,14,16,18"],[2,44,"s","*18"],[2,45,"s","6,12,18"],[2,46,"s","6,12,18"],[5,6,"v","*18"],[5,7,"v","*18"],[154,155,"s","*18"],[8,9,"v","*18"],[8,10,"v","*18"],[8,11,"v","*18"],[8,12,"v","*18"],[13,14,"v","*18"],[15,16,"v","*18"],[17,18,"v","*18"],[17,47,"s","1,5,9,13,17"],[17,48,"s","3,7,11,15"],[15,20,"v","*18"],[21,22,"v","*18"],[21,49,"v","6,12,18"],[15,23,"v","*18"],[15,24,"v","*18"],[15,25,"s","*18"],[26,27,"v","*18"],[15,28,"s","*18"],[15,50,"s","1,3,5,7,9,11,13,15,17"],[29,30,"v","*18"],[31,32,"v","*18"],[31,33,"s","*18"],[34,35,"v","*18"],[34,36,"v","*18"],[157,52,"s","*18"],[37,38,"t","*18"]],"MANTENIMIENTO PROGRAMADO 240.000 REFRIGERANTE":[[157,163,"s",null],[37,38,"t",null]],"MANTENIMIENTO PROGRAMADO 360.000":[[39,56,"s",null],[39,57,"s",null],[37,38,"t",null]],"REEMPLAZO FILTRO DE AIRE 120.000":[[2,60,"s",null],[37,38,"t",null]],"REEMPLAZO PREFILTRO ADBLUE 120.000":[[2,59,"s",null],[37,38,"t",null]]},"f-sc25":{"MANTENIMIENTO DE FAENA":[[0,1,"s",null],[2,3,"s",null],[2,4,"s",null],[5,6,"v",null],[5,7,"v",null],[8,9,"v",null],[8,10,"v",null],[8,11,"v",null],[8,12,"v",null],[13,14,"v",null],[15,16,"v",null],[17,18,"v",null],[17,19,"s",null],[15,20,"v",null],[21,22,"v",null],[15,23,"v",null],[15,24,"v",null],[15,25,"s",null],[26,27,"v",null],[15,28,"s",null],[29,30,"v",null],[31,32,"v",null],[31,33,"s",null],[34,35,"v",null],[34,36,"v",null],[37,38,"t",null]],"MANTENIMIENTO PROGRAMADO 125.000":[[39,54,"s",null],[2,55,"s",null],[37,38,"t",null]],"MANTENIMIENTO PROGRAMADO 25.000":[[39,40,"s","2,4,6,8,10,12,14,16,18"],[2,41,"s","2,4,6,8,10,12,14,16,18"],[2,42,"s","*18"],[2,160,"s","2,4,6,8,10,12,14,16,18"],[2,44,"s","*18"],[2,45,"s","6,12,18"],[2,46,"s","6,12,18"],[5,6,"v","*18"],[5,7,"v","*18"],[154,155,"s","*18"],[8,9,"v","*18"],[8,10,"v","*18"],[8,11,"v","*18"],[8,12,"v","*18"],[13,14,"v","*18"],[15,16,"v","*18"],[17,18,"v","*18"],[17,47,"s","1,5,9,13,17"],[17,48,"s","3,7,11,15"],[15,20,"v","*18"],[21,22,"v","*18"],[21,49,"v","6,12,18"],[15,23,"v","*18"],[15,24,"v","*18"],[15,25,"s","*18"],[26,27,"v","*18"],[15,28,"s","*18"],[15,50,"s","1,3,5,7,9,11,13,15,17"],[29,30,"v","*18"],[31,32,"v","*18"],[31,33,"s","*18"],[34,35,"v","*18"],[34,36,"v","*18"],[157,52,"s","*18"],[37,38,"t","*18"]],"MANTENIMIENTO PROGRAMADO 250.000 REFRIGERANTE":[[157,163,"s",null],[37,38,"t",null]],"MANTENIMIENTO PROGRAMADO 375.000":[[39,56,"s",null],[39,57,"s",null],[37,38,"t",null]],"REEMPLAZO FILTRO DE AIRE 120.000":[[2,60,"s",null],[37,38,"t",null]],"REEMPLAZO PREFILTRO ADBLUE 125.000":[[2,59,"s",null],[37,38,"t",null]]},"f-vol20":{"MANTENIMIENTO DE FAENA":[[0,1,"s",null],[2,3,"s",null],[2,4,"s",null],[5,6,"v",null],[5,7,"v",null],[8,9,"v",null],[8,10,"v",null],[8,11,"v",null],[8,12,"v",null],[13,14,"v",null],[15,16,"v",null],[17,18,"v",null],[17,19,"s",null],[15,20,"v",null],[21,22,"v",null],[15,23,"v",null],[15,24,"v",null],[15,25,"s",null],[26,27,"v",null],[15,28,"s",null],[29,30,"v",null],[31,32,"v",null],[31,33,"s",null],[34,35,"v",null],[34,36,"v",null],[37,38,"t",null]],"MANTENIMIENTO PROGRAMADO 20.000":[[39,40,"s","2,4,6,8,10,12,14,16,18"],[2,41,"s","2,4,6,8,10,12,14,16,18"],[2,42,"s","*18"],[2,43,"s","*18"],[2,44,"s","*18"],[2,45,"s","6,12,18"],[2,46,"s","6,12,18"],[2,153,"s","6,12,18"],[5,6,"v","*18"],[5,7,"v","*18"],[8,9,"v","*18"],[8,10,"v","*18"],[8,11,"v","*18"],[8,12,"v","*18"],[13,14,"v","*18"],[15,16,"v","*18"],[17,18,"v","*18"],[17,47,"s","1,5,9,13,17"],[17,48,"s","3,7,11,15"],[15,20,"v","*18"],[21,22,"v","*18"],[21,49,"v","6,12,18"],[15,23,"v","*18"],[15,24,"v","*18"],[15,25,"s","*18"],[26,27,"v","*18"],[15,28,"s","*18"],[15,50,"s","1,3,5,7,9,11,13,15,17"],[29,30,"v","*18"],[31,32,"v","*18"],[31,33,"s","*18"],[34,35,"v","*18"],[34,36,"v","*18"],[157,52,"s","*18"],[37,38,"t","*18"]],"MANTENIMIENTO PROGRAMADO 240.000":[[2,53,"s",null],[37,38,"t",null]],"MANTENIMIENTO PROGRAMADO 240.000 REFRIGERANTE":[[39,58,"s",null],[37,38,"t",null]],"MANTENIMIENTO PROGRAMADO 360.000":[[39,54,"s",null],[2,55,"s",null],[39,56,"s",null],[39,57,"s",null],[37,38,"t",null]],"REEMPLAZO FILTRO DE AIRE 120.000":[[2,60,"s",null],[37,38,"t",null]],"REEMPLAZO PREFILTRO ADBLUE 120.000":[[2,59,"s",null],[37,38,"t",null]]},"f-est15":{"MANTENCIÓN ESTANQUE C/15.000 KMS":[[164,165,"s",null],[164,166,"s",null],[164,167,"v",null],[168,169,"v",null],[168,170,"v",null],[171,172,"v",null],[171,173,"v",null],[174,175,"v",null],[176,177,"v",null],[178,179,"v",null],[178,180,"v",null],[178,181,"v",null],[178,182,"v",null],[178,183,"v",null],[34,184,"s",null],[34,185,"v",null],[34,186,"v",null],[34,187,"v",null],[34,188,"v",null],[189,190,"v",null],[189,191,"v",null],[189,192,"v",null],[189,193,"v",null],[189,194,"v",null],[0,195,"t",null]]},"f-est20":{"MANTENCIÓN ESTANQUE C/20.000 KMS":[[164,196,"s",null],[164,166,"s",null],[164,167,"v",null],[168,169,"v",null],[168,170,"v",null],[171,197,"v",null],[171,173,"v",null],[174,198,"v",null],[176,177,"v",null],[178,179,"v",null],[178,180,"v",null],[178,181,"v",null],[178,182,"v",null],[178,183,"v",null],[34,184,"s",null],[34,185,"v",null],[34,186,"v",null],[34,199,"v",null],[34,188,"v",null],[189,190,"v",null],[189,191,"v",null],[189,192,"v",null],[189,193,"v",null],[189,194,"v",null],[0,195,"t",null]]},"f-semi20":{"LIMPIEZA CHASIS RAMPLA 120.000 KMS":[[15,200,"s","1"],[0,195,"t","1"]],"MANTENCIÓN RAMPLA 240.000 KMS":[[90,201,"s","1"],[90,202,"s","2"],[90,203,"s","1,2"],[90,204,"s","1,2"],[90,205,"s","1,2"],[80,206,"s","1,2"],[80,207,"s","1,2"],[80,208,"s","1,2"],[0,195,"t","1,2"]],"MANTENCIÓN RAMPLA C/20.000 KMS":[[209,210,"s","*6"],[168,169,"v","*6"],[168,211,"v","*6"],[90,212,"v","*6"],[90,213,"v","2,4,6"],[171,173,"v","*6"],[21,214,"v","2,4,6"],[21,215,"v","6"],[216,217,"v","*6"],[216,218,"v","2,4,6"],[174,219,"v","*6"],[174,220,"v","*6"],[174,221,"v","*6"],[174,222,"s","*6"],[176,177,"v","*6"],[80,223,"v","*6"],[80,224,"v","*6"],[80,225,"v","*6"],[178,179,"v","*6"],[178,180,"v","*6"],[178,181,"v","*6"],[178,182,"v","*6"],[178,183,"v","*6"],[34,184,"v","*6"],[34,185,"v","*6"],[34,226,"v","2,4,6"],[34,227,"v","*6"],[34,188,"v","2,4,6"],[189,228,"v","2,4,6"],[189,192,"v","*6"],[189,193,"v","*6"],[189,194,"v","2,4,6"],[0,195,"t","*6"]],"MANTENIMIENTO DE FAENA":[[0,1,"s",null],[168,229,"s",null],[209,210,"s",null],[168,169,"v",null],[168,211,"v",null],[90,212,"v",null],[90,213,"v",null],[17,19,"s",null],[21,214,"v",null],[216,217,"v",null],[174,219,"v",null],[174,220,"v",null],[174,221,"v",null],[174,222,"s",null],[176,177,"v",null],[80,223,"v",null],[80,224,"v",null],[80,225,"v",null],[178,181,"v",null],[178,182,"v",null],[178,183,"v",null],[34,184,"v",null],[34,185,"v",null],[34,226,"v",null],[34,227,"v",null],[34,188,"v",null],[189,228,"v",null],[189,192,"v",null],[189,193,"v",null],[0,195,"t",null]]}};
+function ftItems(planId, nombre){
+  const rows = (FT_I[planId] || {})[nombre]; if (!rows) return [];
+  return rows.map(([g, d, t, i]) => {
+    const o = {sis: FT_D[g] === "Obligatorio:" ? "GENERAL" : FT_D[g], desc: FT_D[d], tipo: {s:"sino", v:"apf", t:"texto"}[t]};
+    if (i) o.it = i[0] === "*" ? Array.from({length:+i.slice(1)}, (_, k) => k + 1) : i.split(",").map(Number);
+    return o;
+  });
+}
+function seedPautas(){
+  const {R, C, E, T} = seedItems();
+  const PL = [
+    ["f-m106","FLOTA - PAUTA MANTENIMIENTO CAMION FREIGHTLINER M106","Camión",[],["MANTENIMIENTO FREIGHTLINER M2 106 6X2"]],
+    ["f-hilux","FLOTA-PLAN DE MANTENCION TOYOTA HILUX","Camioneta",["92","47","60","14"],["MANTENIMIENTO PROGRAMADO CAMIONETAS"]],
+    ["f-fl15","FLOTA - PLAN MANTENCION CAMION TRACTO FREIGHTLINER 15.000","Tractocamión",["9840","4358","9620","3001","9902","5016","5361","8946","9254"],["MANTENIMIENTO FAENA","MANTENIMIENTO PROGRAMADO 15.000","MANTENIMIENTO PROGRAMADO 240.000","MANTENIMIENTO PROGRAMADO 360.000","REEMPLAZO FILTRO DE AIRE 120.000"]],
+    ["f-man20","FLOTA - PLAN MANTENCION CAMION TRACTO MAN 20.000","Tractocamión",["8846","8887","8975","5032","9622","9737","9760","9897","9816","4061","5113","5579","5252","5253"],["MANTENIMIENTO DE FAENA","MANTENIMIENTO PROGRAMADO 20.000","MANTENIMIENTO PROGRAMADO 240.000","MANTENIMIENTO PROGRAMADO 360.000","MANTENIMIENTO PROGRAMADO 360.000 REFRIGERANTE","REEMPLAZO DE AMBOS FILTROS DE ADBLUE 120.000","REEMPLAZO FILTRO DE AIRE 120.000"]],
+    ["f-mb15","FLOTA - PLAN MANTENCION CAMION TRACTO MB 15.000","Tractocamión",["9494","9850"],["MANTENIMIENTO DE FAENA","MANTENIMIENTO PROGRAMADO 15.000","MANTENIMIENTO PROGRAMADO 240.000","MANTENIMIENTO PROGRAMADO 240.000 REFRIGERANTE","MANTENIMIENTO PROGRAMADO 360.000","REEMPLAZO FILTRO DE AIRE 120.000"]],
+    ["f-mb20","FLOTA - PLAN MANTENCION CAMION TRACTO MB 20.000","Tractocamión",["5033","9684","9694","9804","5272"],["MANTENIMIENTO DE FAENA","MANTENIMIENTO PROGRAMADO 120.000 VALVULAS","MANTENIMIENTO PROGRAMADO 20.000","MANTENIMIENTO PROGRAMADO 240.000 REFRIGERANTE","MANTENIMIENTO PROGRAMADO 360.000","MANTENIMIENTO PROGRAMADO 480.000 DIRECCION","REEMPLAZO FILTRO DE AIRE 120.000","REEMPLAZO PREFILTRO ADBLUE 120.000"]],
+    ["f-atego","FLOTA - PLAN MANTENCION CAMION TRACTO MB 20.000 ATEGO","Camión",["112","111"],["MANTENIMIENTO DE FAENA","MANTENIMIENTO PROGRAMADO 20.000","MANTENIMIENTO PROGRAMADO 240.000","MANTENIMIENTO PROGRAMADO 240.000 REFRIGERANTE","MANTENIMIENTO PROGRAMADO 360.000 DIRECCION","MANTENIMIENTO PROGRAMADO 60.000 VALVULAS","REEMPLAZO FILTRO DE AIRE 120.000","REEMPLAZO PREFILTRO ADBLUE 60.000"]],
+    ["f-sc15","FLOTA - PLAN MANTENCION CAMION TRACTO SCANIA 15.000","Tractocamión",["8876","8815","9612","9650","9854"],["MANTENIMIENTO DE FAENA","MANTENIMIENTO PROGRAMADO 120.000","MANTENIMIENTO PROGRAMADO 15.000","MANTENIMIENTO PROGRAMADO 240.000 REFRIGERANTE","MANTENIMIENTO PROGRAMADO 360.000","REEMPLAZO FILTRO DE AIRE 120.000","REEMPLAZO PREFILTRO ADBLUE 120.000"]],
+    ["f-sc20","FLOTA - PLAN MANTENCION CAMION TRACTO SCANIA 20.000","Tractocamión",["5296","5316","5359","5360"],["MANTENIMIENTO DE FAENA","MANTENIMIENTO PROGRAMADO 120.000","MANTENIMIENTO PROGRAMADO 20.000","MANTENIMIENTO PROGRAMADO 240.000 REFRIGERANTE","MANTENIMIENTO PROGRAMADO 360.000","REEMPLAZO FILTRO DE AIRE 120.000","REEMPLAZO PREFILTRO ADBLUE 120.000"]],
+    ["f-sc25","FLOTA - PLAN MANTENCION CAMION TRACTO SCANIA 25.000","Tractocamión",["4571","5605","5606","5607","4570"],["MANTENIMIENTO DE FAENA","MANTENIMIENTO PROGRAMADO 125.000","MANTENIMIENTO PROGRAMADO 25.000","MANTENIMIENTO PROGRAMADO 250.000 REFRIGERANTE","MANTENIMIENTO PROGRAMADO 375.000","REEMPLAZO FILTRO DE AIRE 120.000","REEMPLAZO PREFILTRO ADBLUE 125.000"]],
+    ["f-vol20","FLOTA - PLAN MANTENCION CAMION TRACTO VOLVO 20.000","Tractocamión",["5100"],["MANTENIMIENTO DE FAENA","MANTENIMIENTO PROGRAMADO 20.000","MANTENIMIENTO PROGRAMADO 240.000","MANTENIMIENTO PROGRAMADO 240.000 REFRIGERANTE","MANTENIMIENTO PROGRAMADO 360.000","REEMPLAZO FILTRO DE AIRE 120.000","REEMPLAZO PREFILTRO ADBLUE 120.000"]],
+    ["f-est15","FLOTA - PLAN MANTENCION ESTANQUE COMBUSTIBLE 15.000","Estanque",["4571","4570","4358","8876"],["MANTENCIÓN ESTANQUE C/15.000 KMS"]],
+    ["f-est20","FLOTA - PLAN MANTENCION ESTANQUE COMBUSTIBLE 20.000","Estanque",["8887","8846","8975","4061"],["MANTENCIÓN ESTANQUE C/20.000 KMS"]],
+    ["f-semi20","FLOTA - PLAN MANTENCION SEMI REMOLQUES COMBUSTIBLE COPEC 20.000","Semirremolque",["8405","8976","616","8983","8991","411","8982","8675","8743","8041","8888","4192","4193","4219","4274","4326","4330","4387","4388","4446","8620","8254","4466","4566"],["LIMPIEZA CHASIS RAMPLA 120.000 KMS","MANTENCIÓN RAMPLA 240.000 KMS","MANTENCIÓN RAMPLA C/20.000 KMS","MANTENIMIENTO DE FAENA"]],
+  ];
+  const out = PL.map(([id, nombre, tipo, activos, tareas]) => ({id, nombre, tipo, activos, tareas:tareas.map((n,i) => ({id:"t"+(i+1), nombre:n, cadaKm:kmDe(n), items:ftItems(id, n)}))}));
+  out.push({id:"p-rampla-15", nombre:"Mantención rampla c/15.000 km (OT 7738)", tipo:"Semirremolque", activos:[], tareas:[{id:"t1", nombre:"Mantención rampla c/15.000 km", cadaKm:15000, items:R.map(x=>({...x}))}]});
+  return out;
+}
+const EMPTY = () => ({camiones:[], ots:[], fallas:[], gastos:[], pautas:seedPautas(), seq:1, seedV:4});
+let D = load();
+function migrar(s){
+  s.pautas = s.pautas || [];
+  s.pautas.forEach(p => { if (!p.tareas){ p.tareas = [{id:"t1", nombre:p.nombre, cadaKm:p.cadaKm||null, items:p.items||[]}]; delete p.cadaKm; delete p.items; } });
+  s.camiones.forEach(c => { if (!c.pautaIds) c.pautaIds = c.pautaId ? [c.pautaId] : []; delete c.pautaId; if (!c.mant) c.mant = {}; });
+  if (!(s.seedV >= 3)){
+    const viejos = ["p-camion-estanque-20","p-rampla-20","p-tracto-20"];
+    s.pautas = s.pautas.filter(p => !viejos.includes(p.id));
+    s.camiones.forEach(c => { c.pautaIds = c.pautaIds.filter(id => !viejos.includes(id)); });
+    seedPautas().forEach(sp => { if (!s.pautas.some(p => p.id === sp.id)) s.pautas.push(sp); });
+    s.seedV = 3;
+  }
+  if (!(s.seedV >= 4)){
+    const ant = ["f-man20/MANTENIMIENTO PROGRAMADO 20.000","f-est20/MANTENCIÓN ESTANQUE C/20.000 KMS","f-semi20/MANTENCIÓN RAMPLA C/20.000 KMS","f-sc20/MANTENIMIENTO PROGRAMADO 20.000"];
+    seedPautas().forEach(sp => { const p = s.pautas.find(x => x.id === sp.id); if (!p) return;
+      sp.tareas.forEach(st => { const t = p.tareas.find(x => x.nombre === st.nombre); if (t && st.items.length && (!t.items.length || ant.includes(p.id + "/" + t.nombre))) t.items = st.items; }); });
+    s.seedV = 4;
+  }
+  return s;
+}
+function load(){ return EMPTY(); }   /* los datos reales llegan del servidor en iniciar() */
+let ROL = "admin", TOKEN = "", BASE_FIJA = "";
+const SOLO_ADMIN = new Set(["new-pauta","edit-pauta","del-pauta","ft-asignar","um-imp","um-apply","imp-km","imp-apply","del-cam","del-ot","del-falla","del-gasto","demo","import"]);
+const SOLO_LECTURA = new Set(["tab","go","go-camiones","chip","hist","checklist","export","clave","salir"]);
+const permitido = a => ROL === "admin" || (ROL === "editor" && !SOLO_ADMIN.has(a)) || (ROL === "lector" && SOLO_LECTURA.has(a));
+function aplicarRol(){ if (ROL === "admin") return; document.querySelectorAll("[data-act]").forEach(b => { if (!permitido(b.dataset.act)) b.style.display = "none"; }); }
+let VERSION = 0, ESTADO = "", EMAIL = "", GUARDANDO = false, PENDIENTE = false, TIMER = null;
+const hhmm = () => { const d = new Date(); return String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0"); };
+const textoPie = () => `Datos compartidos (Google Drive) · ${D.camiones.length} camiones · ${D.ots.length} OTs${S && S.base ? ` · mostrando ${S.base==="-"?"equipos sin base":S.base}` : ""}${EMAIL?` · ${EMAIL} (${ROL})`:""}${ESTADO?` · ${ESTADO}`:""}`;
+const pintarPie = () => { const f = document.getElementById("foot"); if (f) f.textContent = textoPie(); };
+function save(){ if (ROL === "lector"){ alert("Tu cuenta es de solo lectura: los cambios no se guardan."); iniciar(); return; } ESTADO = "Guardando…"; pintarPie(); clearTimeout(TIMER); TIMER = setTimeout(enviarGuardado, 700); }
+function enviarGuardado(){
+  if (GUARDANDO){ PENDIENTE = true; return; }
+  GUARDANDO = true;
+  google.script.run
+    .withSuccessHandler(r => { GUARDANDO = false;
+      if (r.ok){ VERSION = r.version; ESTADO = "Guardado "+hhmm(); pintarPie(); if (PENDIENTE){ PENDIENTE = false; save(); } }
+      else { PENDIENTE = false; alert("Otro administrador guardó cambios"+(r.por?` (${r.por})`:"")+" mientras editabas. Se recargan los datos del servidor; repite tu último cambio."); iniciar(); } })
+    .withFailureHandler(e => { GUARDANDO = false; if (/vencida/i.test(e && e.message)){ TOKEN = ""; pantallaLogin("Tu sesión venció. Ingresa de nuevo (tu último cambio no se guardó)."); return; } ESTADO = "ERROR al guardar: "+(e && e.message ? e.message : e); pintarPie(); })
+    .guardarDatos(TOKEN, VERSION, JSON.stringify(D));
+}
+const estiloCampo = 'display:block;width:100%;margin-top:3px;border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:10px';
+function pantallaLogin(msg){
+  document.getElementById("tabs").innerHTML = "";
+  document.getElementById("q").style.display = "none";
+  document.getElementById("base").style.display = "none";
+  document.getElementById("foot").textContent = "";
+  document.getElementById("view").innerHTML = `<div class="panel" style="max-width:360px;margin:30px auto"><h3>Ingresar</h3>
+    <form id="lg"><label style="display:block;margin-bottom:10px;font-size:13px;color:var(--muted)">Usuario<input id="lgu" autocomplete="username" style="${estiloCampo}" required></label>
+    <label style="display:block;margin-bottom:10px;font-size:13px;color:var(--muted)">Clave<input id="lgc" type="password" autocomplete="current-password" style="${estiloCampo}" required></label>
+    <div id="lgm" style="color:var(--red);margin:6px 0;min-height:18px">${msg ? esc(msg) : ""}</div><button class="btn pri" id="lgb" style="width:100%;padding:10px">Entrar</button></form></div>`;
+  const f = document.getElementById("lg");
+  f.onsubmit = e => { e.preventDefault(); const b = document.getElementById("lgb"); b.disabled = true; b.textContent = "Verificando…";
+    google.script.run
+      .withSuccessHandler(r => { TOKEN = r.token; try{ sessionStorage.setItem("mant_tok", TOKEN); }catch(_){} cargar(); })
+      .withFailureHandler(err => pantallaLogin(err && err.message ? err.message.replace(/^Error:\s*/,"") : "No se pudo ingresar"))
+      .login(document.getElementById("lgu").value, document.getElementById("lgc").value); };
+  document.getElementById("lgu").focus();
+}
+function cargar(){
+  document.getElementById("view").innerHTML = '<div class="empty">Cargando datos…</div>';
+  google.script.run
+    .withSuccessHandler(r => { VERSION = r.version; EMAIL = r.nombre || r.usuario || ""; ROL = r.rol || "lector"; BASE_FIJA = (r.base && r.base !== "Todas") ? r.base : "";
+      D = r.data ? migrar(JSON.parse(r.data)) : EMPTY(); ESTADO = ""; document.getElementById("base").style.display = ""; render(); })
+    .withFailureHandler(e => { if (/vencida/i.test(e && e.message)){ TOKEN = ""; pantallaLogin("Tu sesión venció. Ingresa de nuevo."); } else document.getElementById("view").innerHTML = '<div class="empty">No se pudieron cargar los datos: '+esc(e && e.message ? e.message : e)+'</div>'; })
+    .cargarDatos(TOKEN);
+}
+function iniciar(){ try{ TOKEN = sessionStorage.getItem("mant_tok") || ""; }catch(_){ TOKEN = ""; } if (TOKEN) cargar(); else pantallaLogin(); }
+function salir(){ const t = TOKEN; TOKEN = ""; try{ sessionStorage.removeItem("mant_tok"); }catch(_){} google.script.run.logout(t); pantallaLogin(); }
+function fClave(){
+  form("Cambiar mi clave", [
+    {k:"actual", l:"Clave actual", t:"password", req:1},
+    {k:"nueva", l:"Clave nueva (mínimo 8 caracteres)", t:"password", req:1},
+    {k:"rep", l:"Repite la clave nueva", t:"password", req:1},
+  ], {}, v => {
+    if (v.nueva !== v.rep){ alert("Las claves nuevas no coinciden."); return; }
+    google.script.run.withSuccessHandler(() => alert("Clave cambiada.")).withFailureHandler(e => alert(e && e.message ? e.message : e)).cambiarClave(TOKEN, v.actual, v.nueva);
+  });
+}
+const nid = () => D.seq++;
+
+/* ================= Utilidades ================= */
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const iso = d => d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+const hoy = () => iso(new Date());
+const addDays = (s,n) => { const d = new Date(s+"T12:00:00"); d.setDate(d.getDate()+n); return iso(d); };
+const diff = (a,b) => Math.round((new Date(b+"T12:00:00") - new Date(a+"T12:00:00"))/86400000);
+const num = v => (v === "" || v == null || isNaN(+v)) ? null : +v;
+const fkm = n => n == null ? "—" : Number(n).toLocaleString("es-CL")+" km";
+const fclp = n => "$"+Math.round(n||0).toLocaleString("es-CL");
+const fdate = s => { if(!s) return "—"; const [y,m,d] = s.split("-"); return `${+d}/${+m}/${y}`; };
+const MESES = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+const camion = p => D.camiones.find(c => c.pat === p);
+
+const TIPOS_EQ = ["","Tractocamión","Semirremolque","Camión","Estanque","Camioneta"];
+const ESTADOS_CAM = {operativo:["Operativo","green"], taller:["En taller","amber"], detenido:["Detenido","red"]};
+const ESTADOS_OT = {abierta:["Abierta","blue"], proceso:["En proceso","amber"], revision:["En revisión","gray"], cerrada:["Cerrada","green"]};
+const PRIO = ["Muy alta","Alta","Media","Baja"];
+const PRIO_TAG = {"Muy alta":"red","Alta":"amber","Media":"blue","Baja":"gray"};
+const SEV = ["Muy alta","Alta","Media","Baja"];
+
+const otAbierta = o => o.estado !== "cerrada";
+const otAtrasada = o => otAbierta(o) && o.vence && o.vence < hoy();
+
+const pautaPorId = id => D.pautas.find(p => p.id === id);
+/** Tareas (con intervalo en km) de todas las pautas asignadas al camión */
+function tareasDe(c){
+  const out = [];
+  (c.pautaIds || []).forEach(pid => { const p = pautaPorId(pid); if (!p) return;
+    const kms = p.tareas.map(t => t.cadaKm).filter(Boolean), min = kms.length ? Math.min(...kms) : null;
+    p.tareas.forEach(t => out.push({key:pid+"/"+t.id, plan:p, tarea:t, primaria:!!t.cadaKm && t.cadaKm === min})); });
+  return out;
+}
+function prev(c){
+  const ts = tareasDe(c).filter(x => x.tarea.cadaKm);
+  if (ts.length){
+    const km = c.km || 0;
+    const tareas = ts.map(x => {
+      const last = (c.mant && c.mant[x.key]) || (x.primaria && c.ultKm != null ? {fecha:c.ultFecha, km:c.ultKm} : null);
+      if (!last) return {...x, st:"sinreg", nk:null, kmR:null, last:null};
+      const nk = last.km + x.tarea.cadaKm, kmR = nk - km;
+      return {...x, last, nk, kmR, st: kmR <= 0 ? "vencido" : kmR <= 1000 ? "proximo" : "ok"};
+    });
+    const reg = tareas.filter(t => t.st !== "sinreg").sort((a,b) => a.kmR - b.kmR);
+    const st = reg.some(t => t.st === "vencido") ? "vencido" : reg.some(t => t.st === "proximo") ? "proximo" : reg.length ? "ok" : "sin";
+    return {nk:reg[0]?reg[0].nk:null, nd:null, kmR:reg[0]?reg[0].kmR:null, dR:null, st, tareas};
+  }
+  const cada = c.intKm;
+  const nk = (c.ultKm != null && cada) ? c.ultKm + cada : null;
+  const nd = (c.ultFecha && c.intDias) ? addDays(c.ultFecha, c.intDias) : null;
+  const kmR = nk != null ? nk - (c.km || 0) : null;
+  const dR = nd ? diff(hoy(), nd) : null;
+  let st = "sin";
+  if (nk != null || nd){
+    if ((kmR != null && kmR <= 0) || (dR != null && dR < 0)) st = "vencido";
+    else if ((kmR != null && kmR <= 1000) || (dR != null && dR <= 15)) st = "proximo";
+    else st = "ok";
+  }
+  return {nk, nd, kmR, dR, st, tareas:[]};
+}
+
+/* ================= Estado de la vista ================= */
+const TABS = [["resumen","Resumen"],["camiones","Camiones"],["ots","Órdenes de trabajo"],["prev","Preventivo"],["pautas","Pautas"],["fallas","Fallas"],["costos","Repuestos y costos"]];
+let S = {tab:"resumen", q:"", base:"", f:{camiones:"todos", ots:"abiertas", prev:"todos"}};
+try{ const u = JSON.parse(localStorage.getItem(KEY+"_ui")||"{}"); if (TABS.some(x=>x[0]===u.tab)) S.tab = u.tab; if (typeof u.base === "string") S.base = u.base; }catch(e){}
+
+function guardarUI(){ try{ localStorage.setItem(KEY+"_ui", JSON.stringify({tab:S.tab, base:S.base})); }catch(e){} }
+function go(tab, filtro){
+  S.tab = tab; if (filtro && S.f[tab] !== undefined) S.f[tab] = filtro;
+  guardarUI();
+  render();
+}
+const match = (...v) => { const q = S.q.trim().toLowerCase(); return !q || v.some(x => String(x||"").toLowerCase().includes(q)); };
+
+/* ================= Formularios ================= */
+const dlg = document.getElementById("dlg");
+function form(title, fields, vals, onSave){
+  dlg.innerHTML = `<form><h2>${esc(title)}</h2>${fields.map(f => {
+    const v = vals[f.k] ?? f.def ?? "";
+    if (f.t === "chk") return `<label class="chk"><input type="checkbox" name="${f.k}"${v?" checked":""}>${esc(f.l)}</label>`;
+    let inp;
+    if (f.t === "sel") inp = `<select name="${f.k}"${f.req?" required":""}>${f.opts.map(o => { const [val,lab] = Array.isArray(o)?o:[o,o]; return `<option value="${esc(val)}"${String(val)===String(v)?" selected":""}>${esc(lab)}</option>`; }).join("")}</select>`;
+    else if (f.t === "area") inp = `<textarea name="${f.k}" rows="${f.rows||3}"${f.req?" required":""}>${esc(v)}</textarea>`;
+    else inp = `<input name="${f.k}" type="${f.t||"text"}" value="${esc(v)}"${f.req?" required":""}${f.t==="number"?' step="any" min="0"':""}>`;
+    return `<label>${esc(f.l)}${inp}</label>`;
+  }).join("")}<div class="btns"><button type="button" class="btn" data-x>Cancelar</button><button class="btn pri">Guardar</button></div></form>`;
+  const fm = dlg.querySelector("form");
+  fm.querySelector("[data-x]").onclick = () => dlg.close();
+  fm.onsubmit = e => {
+    e.preventDefault();
+    const out = {};
+    fields.forEach(f => {
+      const el = fm.elements[f.k];
+      out[f.k] = f.t === "chk" ? el.checked : f.t === "number" ? num(el.value) : (el.value || "").trim();
+    });
+    onSave(out); save(); dlg.close(); render();
+  };
+  dlg.showModal();
+}
+const patOpts = () => D.camiones.length ? D.camiones.map(c => c.pat).sort() : [];
+function needTrucks(){ if (!D.camiones.length){ alert("Primero agrega al menos un camión en la sección Camiones."); return true; } return false; }
+
+function fCamion(c){
+  const isNew = !c;
+  form(isNew ? "Nuevo camión" : "Editar "+c.pat, [
+    {k:"pat", l:"Patente", req:1},
+    {k:"marca", l:"Marca / modelo"},
+    {k:"base", l:"Base", t:"sel", opts:["","Puerto Montt","Chacabuco","Punta Arenas"]},
+    {k:"tipo", l:"Tipo de equipo", t:"sel", opts:TIPOS_EQ},
+    {k:"km", l:"Kilometraje actual", t:"number"},
+    {k:"estado", l:"Estado", t:"sel", opts:Object.entries(ESTADOS_CAM).map(([k,v])=>[k,v[0]]), def:"operativo"},
+    {k:"ultFecha", l:"Fecha última mantención", t:"date"},
+    {k:"ultKm", l:"Km última mantención", t:"number"},
+    {k:"intKm", l:"Mantener cada (km)", t:"number", def:10000},
+    {k:"intDias", l:"Mantener cada (días)", t:"number", def:90},
+  ], c || {}, v => {
+    v.pat = v.pat.toUpperCase().replace(/\s+/g,"");
+    if (isNew){ if (camion(v.pat)){ alert("Esa patente ya existe."); return; } D.camiones.push(v); }
+    else { if (v.pat !== c.pat){ if (camion(v.pat)){ alert("Esa patente ya existe."); return; }
+        [...D.ots, ...D.fallas, ...D.gastos].forEach(r => { if (r.pat === c.pat) r.pat = v.pat; }); }
+      Object.assign(c, v); }
+  });
+}
+function fOT(o, pre){
+  if (needTrucks()) return; const isNew = !o;
+  form(isNew ? "Nueva orden de trabajo" : "Orden #"+o.id, [
+    {k:"pat", l:"Camión", t:"sel", opts:patOpts(), req:1},
+    {k:"tipo", l:"Tipo", t:"sel", opts:[["preventivo","Preventivo (planificada)"],["correctivo","Correctivo (no planificada)"]]},
+    {k:"desc", l:"Descripción", t:"area", req:1},
+    {k:"prioridad", l:"Prioridad", t:"sel", opts:PRIO, def:"Media"},
+    {k:"resp", l:"Responsable / taller"},
+    {k:"estado", l:"Estado", t:"sel", opts:Object.entries(ESTADOS_OT).map(([k,v])=>[k,v[0]]), def:"abierta"},
+    {k:"creada", l:"Fecha de creación", t:"date", def:hoy()},
+    {k:"vence", l:"Fecha comprometida", t:"date"},
+    {k:"costo", l:"Costo (CLP)", t:"number"},
+  ], o || pre || {}, v => {
+    if (v.estado === "cerrada") v.cerrada = (o && o.cerrada) || hoy(); else v.cerrada = null;
+    const abria = !isNew && otAbierta(o);
+    if (isNew) D.ots.push({id:nid(), ...v}); else Object.assign(o, v);
+    if (abria && v.estado === "cerrada") alCerrar(o);
+  });
+}
+function fFalla(f){
+  if (needTrucks()) return; const isNew = !f;
+  form(isNew ? "Reportar falla" : "Falla #"+f.id, [
+    {k:"fecha", l:"Fecha", t:"date", def:hoy(), req:1},
+    {k:"pat", l:"Camión", t:"sel", opts:(f && f.pat && !camion(f.pat)) ? [f.pat, ...patOpts()] : patOpts(), req:1},
+    {k:"desc", l:"Qué ocurrió", t:"area", req:1},
+    {k:"severidad", l:"Severidad", t:"sel", opts:SEV, def:"Media"},
+    {k:"reportado", l:"Reportado por"},
+    {k:"solucion", l:"Solución aplicada (si ya se resolvió)", t:"area"},
+    ...(isNew ? [{k:"crearOT", l:"Crear orden de trabajo correctiva", t:"chk", def:true}] : []),
+  ], f || {}, v => {
+    const crear = v.crearOT; delete v.crearOT;
+    if (isNew){
+      const id = nid(); const rec = {id, ...v};
+      if (crear){ const oid = nid(); D.ots.push({id:oid, pat:v.pat, tipo:"correctivo", desc:"Falla: "+v.desc, prioridad:v.severidad, resp:"", estado:v.solucion?"cerrada":"abierta", creada:v.fecha, vence:addDays(v.fecha,3), cerrada:v.solucion?v.fecha:null, costo:null}); rec.otId = oid; }
+      D.fallas.push(rec);
+    } else Object.assign(f, v);
+  });
+}
+function fGasto(g){
+  if (needTrucks()) return; const isNew = !g;
+  form(isNew ? "Nuevo gasto" : "Editar gasto", [
+    {k:"fecha", l:"Fecha", t:"date", def:hoy(), req:1},
+    {k:"pat", l:"Camión", t:"sel", opts:patOpts(), req:1},
+    {k:"concepto", l:"Concepto (repuesto, servicio…)", req:1},
+    {k:"monto", l:"Monto (CLP)", t:"number", req:1},
+  ], g || {}, v => { if (isNew) D.gastos.push({id:nid(), ...v}); else Object.assign(g, v); });
+}
+function fHecha(c){
+  const ts = tareasDe(c).filter(x => x.tarea.cadaKm);
+  form("Mantención realizada · "+c.pat, [
+    ...(ts.length ? [{k:"tarea", l:"Qué mantención se hizo", t:"sel", opts:[["","General"], ...ts.map(x => [x.key, `${x.tarea.nombre} (${x.plan.nombre.replace(/^FLOTA\s*-\s*(PLAN|PAUTA)\s+(DE\s+)?MANTEN[A-Z]+\s+/i,"")})`])]}] : []),
+    {k:"fecha", l:"Fecha", t:"date", def:hoy(), req:1},
+    {k:"km", l:"Kilometraje al hacerla", t:"number", def:c.km},
+    {k:"resp", l:"Taller / responsable"},
+    {k:"costo", l:"Costo (CLP)", t:"number"},
+  ], {}, v => {
+    if (v.tarea){ c.mant = c.mant || {}; c.mant[v.tarea] = {fecha:v.fecha, km:v.km != null ? v.km : (c.km||0)}; }
+    else { c.ultFecha = v.fecha; if (v.km != null) c.ultKm = v.km; }
+    if (v.km != null && v.km > (c.km||0)) c.km = v.km;
+    if (c.estado === "taller") c.estado = "operativo";
+    const t = ts.find(x => x.key === v.tarea);
+    D.ots.push({id:nid(), pat:c.pat, tipo:"preventivo", desc:t ? t.tarea.nombre : "Mantención preventiva", prioridad:"Media", resp:v.resp, estado:"cerrada", creada:v.fecha, vence:v.fecha, cerrada:v.fecha, costo:v.costo});
+  });
+}
+
+/* ================= Vistas ================= */
+const tag = (txt, cls) => `<span class="tag ${cls}">${esc(txt)}</span>`;
+const emptyMsg = (txt, btn) => `<div class="empty">${txt}${btn||""}</div>`;
+const demoBtns = `<br><button class="btn pri" data-act="demo">Cargar datos de ejemplo</button>`;
+
+function vResumen(){
+  if (!D.camiones.length) return emptyMsg("Aún no hay datos. Agrega tus camiones en <b>Camiones</b> o prueba el tablero con datos de ejemplo.",
+    `<br><button class="btn pri" data-act="go-camiones">Agregar camiones</button><button class="btn" data-act="demo">Cargar datos de ejemplo</button>`);
+  const h = hoy(), d30 = addDays(h,-30);
+  const det = D.camiones.filter(c => c.estado !== "operativo");
+  const abiertas = D.ots.filter(otAbierta), atras = D.ots.filter(otAtrasada);
+  const rec = D.ots.filter(o => o.creada >= d30);
+  const cerr = rec.filter(o => o.estado === "cerrada").length;
+  const cumpl = rec.length ? Math.round(cerr*1000/rec.length)/10 : null;
+  const plan = rec.filter(o => o.tipo === "preventivo").length, noPlan = rec.length - plan;
+  const pv = D.camiones.map(c => ({c, p:prev(c)})).filter(x => x.p.st === "vencido");
+  const mes = h.slice(0,7);
+  const gasto = D.gastos.filter(g => g.fecha.startsWith(mes)).reduce((a,g)=>a+(g.monto||0),0) + D.ots.filter(o => o.cerrada && o.cerrada.startsWith(mes)).reduce((a,o)=>a+(o.costo||0),0);
+  const pr = PRIO.map(p => [p, abiertas.filter(o => o.prioridad === p).length]); const mx = Math.max(1, ...pr.map(x=>x[1]));
+  const pPlan = rec.length ? Math.round(plan*100/rec.length) : 0;
+
+  const nuevasObs = D.fallas.filter(x => x.nueva && !x.otId);
+  const alertas = [
+    ...nuevasObs.map(x => `<li>${tag("Observación nueva","blue")} <b>${esc(x.pat)}</b> · ${esc(x.desc)} ${x.opera==="No"?tag("No puede operar","red"):""} <button class="btn sm" data-act="go" data-tab="fallas">Ver</button></li>`),
+    ...det.map(c => `<li>${tag(ESTADOS_CAM[c.estado][0], ESTADOS_CAM[c.estado][1])} <b>${esc(c.pat)}</b> ${esc(c.marca||"")}</li>`),
+    ...pv.map(x => `<li>${tag("Preventivo vencido","red")} <b>${esc(x.c.pat)}</b> · ${x.p.kmR!=null&&x.p.kmR<=0?`pasado por ${fkm(-x.p.kmR)}`:`vencido hace ${-x.p.dR} días`}</li>`),
+    ...atras.map(o => `<li>${tag("OT atrasada","red")} <b>${esc(o.pat)}</b> · ${esc(o.desc)} <span style="color:var(--muted)">(comprometida ${fdate(o.vence)})</span></li>`),
+  ];
+  return `<section class="kpis">
+    <button class="kpi ${det.length?"red":""}" data-act="go" data-tab="camiones" data-f="detenidos"><span class="l">Camiones detenidos hoy</span><span class="n">${det.length}</span><span class="s">de ${D.camiones.length} en flota</span></button>
+    <button class="kpi" data-act="go" data-tab="ots" data-f="abiertas"><span class="l">OTs abiertas</span><span class="n">${abiertas.length}</span><span class="s">abiertas, en proceso o revisión</span></button>
+    <button class="kpi ${atras.length?"red":""}" data-act="go" data-tab="ots" data-f="atrasadas"><span class="l">OTs atrasadas</span><span class="n">${atras.length}</span><span class="s">pasaron su fecha comprometida</span></button>
+    <button class="kpi ${cumpl!=null&&cumpl>=90?"green":cumpl!=null?"amber":""}" data-act="go" data-tab="ots" data-f="todas"><span class="l">Cumplimiento 30 días</span><span class="n">${cumpl==null?"—":cumpl.toString().replace(".",",")+"%"}</span><span class="s">${cerr} de ${rec.length} OTs cerradas</span></button>
+    <button class="kpi ${pv.length?"red":""}" data-act="go" data-tab="prev" data-f="vencido"><span class="l">Preventivos vencidos</span><span class="n">${pv.length}</span><span class="s">por km o por fecha</span></button>
+    <button class="kpi" data-act="go" data-tab="costos"><span class="l">Gasto del mes</span><span class="n" style="font-size:24px">${fclp(gasto)}</span><span class="s">OTs cerradas + gastos</span></button>
+  </section>
+  <div class="grid2">
+    <div class="panel"><h3>Planificado vs no planificado (30 días)</h3>
+      ${rec.length ? `<div class="stack"><i style="width:${pPlan}%;background:var(--green)"></i><i style="width:${100-pPlan}%;background:var(--red)"></i></div>
+      <div class="legend"><span><span class="dot" style="background:var(--green)"></span>Preventivas ${pPlan}% (${plan})</span><span><span class="dot" style="background:var(--red)"></span>Correctivas ${100-pPlan}% (${noPlan})</span></div>` : `<div class="sub">Sin órdenes en los últimos 30 días.</div>`}
+    </div>
+    <div class="panel"><h3>OTs abiertas por prioridad</h3><div class="bars">${pr.map(([p,n]) => `<div class="b"><span>${p}</span><span class="t"><i style="width:${n*100/mx}%"></i></span><b>${n}</b></div>`).join("")}</div></div>
+  </div>
+  <div class="panel"><h3>Requiere atención ${alertas.length?`· ${alertas.length}`:""}</h3>
+    ${alertas.length ? `<ul style="margin:0;padding-left:18px;display:grid;gap:6px">${alertas.join("")}</ul>` : `<div class="sub">Todo al día. Sin camiones detenidos, preventivos vencidos ni órdenes atrasadas.</div>`}
+  </div>`;
+}
+
+function chips(key, opts){
+  return `<div class="chips">${opts.map(([k,l,n]) => `<button class="chip" data-act="chip" data-key="${key}" data-v="${k}" aria-pressed="${S.f[key]===k}">${l}${n!=null?` · ${n}`:""}</button>`).join("")}</div>`;
+}
+
+function vCamiones(){
+  const all = D.camiones;
+  const f = S.f.camiones;
+  const list = all.filter(c => (f==="todos" || (f==="detenidos" ? c.estado!=="operativo" : c.estado===f)) && match(c.pat, c.marca));
+  let h = `<div class="chips" style="justify-content:space-between"><span style="display:flex;gap:8px;flex-wrap:wrap">${[["todos","Todos",all.length],["operativo","Operativos",all.filter(c=>c.estado==="operativo").length],["detenidos","Detenidos o en taller",all.filter(c=>c.estado!=="operativo").length]].map(([k,l,n]) => `<button class="chip" data-act="chip" data-key="camiones" data-v="${k}" aria-pressed="${f===k}">${l} · ${n}</button>`).join("")}</span><span style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-act="imp-km">Importar km desde Excel</button><button class="btn pri" data-act="new-cam">+ Nuevo camión</button></span></div>`;
+  if (!all.length) return h + emptyMsg("Sin camiones registrados.", demoBtns);
+  if (!list.length) return h + emptyMsg("Ningún camión coincide.");
+  return h + list.sort((a,b)=>a.pat.localeCompare(b.pat)).map(c => {
+    const p = prev(c), st = ESTADOS_CAM[c.estado]||ESTADOS_CAM.operativo;
+    const ots = D.ots.filter(o => o.pat === c.pat), ab = ots.filter(otAbierta).length;
+    return `<div class="row ${c.estado==="detenido"?"flag":c.estado==="taller"?"warn":""}">
+      <div><span class="plate">${esc(c.pat)}</span></div>
+      <div class="what"><div class="d">${esc(c.marca||"Sin modelo")} ${tag(st[0], st[1])}${p.st==="vencido"?" "+tag("Preventivo vencido","red"):p.st==="proximo"?" "+tag("Preventivo próximo","amber"):""}</div>
+        <div class="m"><span>${fkm(c.km)}${c.kmFecha?` <small>(al ${fdate(c.kmFecha)})</small>`:""}</span>${c.base?`<span>${esc(c.base)}</span>`:""}<span>Última mantención ${fdate(c.ultFecha)}${c.ultKm!=null?` (${fkm(c.ultKm)})`:""}</span><span>Próxima ${p.nk!=null?fkm(p.nk):""}${p.nk!=null&&p.nd?" o ":""}${p.nd?fdate(p.nd):""}${p.nk==null&&!p.nd?"—":""}</span><span>${ab} OT abierta${ab===1?"":"s"} · ${ots.length} en historial</span>${(c.pautaIds||[]).length?`<span>Pautas: ${esc((c.pautaIds||[]).map(id => (pautaPorId(id)||{nombre:id}).nombre.replace(/^FLOTA\s*-?\s*(PLAN|PAUTA)\s+(DE\s+)?MANTEN[A-Z]+\s+/i,"")).join(" + "))}</span>`:""}</div></div>
+      <div class="acts"><button class="btn sm" data-act="hist" data-id="${esc(c.pat)}">Historial</button><button class="btn sm" data-act="edit-cam" data-id="${esc(c.pat)}">Editar</button><button class="btn sm danger" data-act="del-cam" data-id="${esc(c.pat)}">Eliminar</button></div></div>`;
+  }).join("");
+}
+
+function vOTs(){
+  const f = S.f.ots;
+  const cnt = {abiertas:D.ots.filter(otAbierta).length, atrasadas:D.ots.filter(otAtrasada).length, cerradas:D.ots.filter(o=>o.estado==="cerrada").length, todas:D.ots.length};
+  const pass = o => f==="todas" || (f==="abiertas"&&otAbierta(o)) || (f==="atrasadas"&&otAtrasada(o)) || (f==="cerradas"&&o.estado==="cerrada");
+  const list = D.ots.filter(o => pass(o) && match(o.pat, o.desc, o.resp));
+  const pi = p => PRIO.indexOf(p);
+  let h = `<div class="chips" style="justify-content:space-between"><span style="display:flex;gap:8px;flex-wrap:wrap">${[["abiertas","Abiertas"],["atrasadas","Atrasadas"],["cerradas","Cerradas"],["todas","Todas"]].map(([k,l]) => `<button class="chip" data-act="chip" data-key="ots" data-v="${k}" aria-pressed="${f===k}">${l} · ${cnt[k]}</button>`).join("")}</span><button class="btn pri" data-act="new-ot">+ Nueva OT</button></div>`;
+  if (!list.length) return h + emptyMsg(D.ots.length ? "Ninguna orden coincide con el filtro." : "Sin órdenes de trabajo.", D.camiones.length?"":demoBtns);
+  return h + list.sort((a,b) => (otAbierta(b)-otAbierta(a)) || pi(a.prioridad)-pi(b.prioridad) || (a.vence||"9").localeCompare(b.vence||"9")).map(o => {
+    const st = ESTADOS_OT[o.estado], at = otAtrasada(o);
+    return `<div class="row ${at?"flag":""}">
+      <div><span class="plate">${esc(o.pat)}</span><div class="sub">OT #${o.id}</div></div>
+      <div class="what"><div class="d">${esc(o.desc)}</div>
+        <div class="m">${tag(st[0],st[1])} ${tag(o.tipo==="preventivo"?"Preventiva":"Correctiva", o.tipo==="preventivo"?"green":"red")} ${tag(o.prioridad, PRIO_TAG[o.prioridad]||"gray")}${at?" "+tag("Atrasada","red"):""}
+          ${o.resp?`<span>${esc(o.resp)}</span>`:""}<span>Creada ${fdate(o.creada)}</span>${o.vence?`<span>Comprometida ${fdate(o.vence)}</span>`:""}${o.cerrada?`<span>Cerrada ${fdate(o.cerrada)}</span>`:""}${o.costo!=null?`<span>${fclp(o.costo)}</span>`:""}${o.items?`<span>Checklist ${o.items.filter(i=>i.tipo!=="texto"&&i.res).length}/${o.items.filter(i=>i.tipo!=="texto").length}${o.items.some(i=>i.res==="fallo")?` · ${o.items.filter(i=>i.res==="fallo").length} con falla`:""}</span>`:""}</div></div>
+      <div class="acts">${o.items?`<button class="btn sm" data-act="checklist" data-id="${o.id}">Checklist</button>`:""}${otAbierta(o)?`<button class="btn sm" data-act="close-ot" data-id="${o.id}">Cerrar</button>`:""}<button class="btn sm" data-act="edit-ot" data-id="${o.id}">Editar</button><button class="btn sm danger" data-act="del-ot" data-id="${o.id}">Eliminar</button></div></div>`;
+  }).join("");
+}
+
+function vPrev(){
+  const f = S.f.prev;
+  const all = D.camiones.map(c => ({c, p:prev(c)}));
+  const n = k => all.filter(x => x.p.st === k).length;
+  const list = all.filter(x => (f==="todos" || x.p.st===f) && match(x.c.pat, x.c.marca));
+  const ord = {vencido:0, proximo:1, ok:2, sin:3};
+  const h = `<div class="chips">${[["todos","Todos",all.length],["vencido","Vencidos",n("vencido")],["proximo","Próximos",n("proximo")],["ok","Al día",n("ok")]].map(([k,l,c]) => `<button class="chip" data-act="chip" data-key="prev" data-v="${k}" aria-pressed="${f===k}">${l} · ${c}</button>`).join("")}</div>`;
+  if (!all.length) return h + emptyMsg("Agrega camiones con su última mantención e intervalo para ver el preventivo.", demoBtns);
+  if (!list.length) return h + emptyMsg("Ningún camión coincide.");
+  return h + list.sort((a,b) => ord[a.p.st]-ord[b.p.st] || (a.p.kmR??1e9)-(b.p.kmR??1e9)).map(({c,p}) => {
+    const lbl = {vencido:["Vencido","red"],proximo:["Próximo","amber"],ok:["Al día","green"],sin:["Sin plan","gray"]}[p.st];
+    const due = p.tareas.filter(t => t.st === "vencido" || t.st === "proximo");
+    const sinreg = p.tareas.filter(t => t.st === "sinreg").length;
+    const corto = n => n.replace(/^MANTENIMIENTO PROGRAMADO\s*/i,"Programado ").replace(/^MANTENCIÓN\s*/i,"");
+    const lineas = p.tareas.filter(t => t.st !== "sinreg").sort((a,b) => a.kmR - b.kmR).slice(0,4).map(t => `<span>${tag(t.st==="vencido"?"Vencida":t.st==="proximo"?"Próxima":"Al día", t.st==="vencido"?"red":t.st==="proximo"?"amber":"green")} ${esc(corto(t.tarea.nombre))}: ${t.kmR<=0?`pasada por ${fkm(-t.kmR)}`:`faltan ${fkm(t.kmR)}`}</span>`).join("");
+    return `<div class="row ${p.st==="vencido"?"flag":p.st==="proximo"?"warn":""}">
+      <div><span class="plate">${esc(c.pat)}</span></div>
+      <div class="what"><div class="d">${tag(lbl[0],lbl[1])} ${esc(c.marca||c.tipo||"")}</div>
+        <div class="m">${p.tareas.length ? lineas : `${p.kmR!=null?`<span>${p.kmR<=0?`Pasado por ${fkm(-p.kmR)}`:`Faltan ${fkm(p.kmR)}`} (próx. ${fkm(p.nk)})</span>`:""}${p.dR!=null?`<span>${p.dR<0?`Vencido hace ${-p.dR} días`:`Faltan ${p.dR} días`} (${fdate(p.nd)})</span>`:""}`}${p.st==="sin"?`<span>${(c.pautaIds||[]).length?"Registra la última mantención de cada tarea (botón de la derecha)":"Asigna una pauta en Pautas o define el intervalo en Editar"}</span>`:""}${sinreg&&p.tareas.length?`<span>${sinreg} tarea${sinreg===1?"":"s"} sin registro</span>`:""}<span>Km actual ${fkm(c.km)}</span></div></div>
+      <div class="acts">${due.length?`<button class="btn sm pri" data-act="gen-ot" data-id="${esc(c.pat)}">Generar OT${due.length>1?` (${due.length} tareas)`:""}</button>`:""}<button class="btn sm" data-act="hecha" data-id="${esc(c.pat)}">Registrar mantención hecha</button></div></div>`;
+  }).join("");
+}
+
+function vPautas(){
+  const asignados = D.pautas.reduce((a,p) => a + (p.activos||[]).length, 0);
+  const h = `<div class="chips" style="justify-content:space-between"><span class="sub">Planes de tareas (como en Fracttal): cada plan tiene tareas con su propio intervalo en km y checklist.</span><span style="display:flex;gap:8px;flex-wrap:wrap">${asignados?`<button class="btn" data-act="ft-asignar">Asignar camiones según Fracttal</button>`:""}<button class="btn" data-act="um-imp">Importar últimas mantenciones</button><button class="btn pri" data-act="new-pauta">+ Nuevo plan</button></span></div>`;
+  const list = D.pautas.filter(p => match(p.nombre, p.tipo, ...p.tareas.map(t => t.nombre)));
+  if (!list.length) return h + emptyMsg("Sin planes.");
+  return h + list.map(p => {
+    const usan = D.camiones.filter(c => (c.pautaIds||[]).includes(p.id));
+    const km = p.tareas.map(t => t.cadaKm).filter(Boolean), min = km.length ? Math.min(...km) : null;
+    const sinChecklist = p.tareas.filter(t => !t.items.length).length;
+    return `<div class="row"><div><span class="plate">${min?Number(min).toLocaleString("es-CL"):"—"} km</span></div>
+      <div class="what"><div class="d">${esc(p.nombre)} ${p.tipo?tag(p.tipo,"gray"):""}</div>
+        <div class="m"><span>${p.tareas.length} tarea${p.tareas.length===1?"":"s"}${sinChecklist?` (${sinChecklist} sin checklist)`:""}</span><span>${usan.length} equipo${usan.length===1?"":"s"}: ${usan.length?esc(usan.map(c=>c.pat).join(", ")):"ninguno asignado"}${(p.activos||[]).length&&!usan.length?` · Fracttal: ${p.activos.length}`:""}</span></div>
+        <div class="m" style="font-size:12px">${esc(p.tareas.map(t => t.nombre).join(" · "))}</div></div>
+      <div class="acts"><button class="btn sm" data-act="edit-pauta" data-id="${esc(p.id)}">Editar</button><button class="btn sm danger" data-act="del-pauta" data-id="${esc(p.id)}">Eliminar</button></div></div>`;
+  }).join("");
+}
+const itemsToText = its => { let g = null, out = []; its.forEach(i => { if ((i.grupo||null) !== g){ g = i.grupo||null; if (g) out.push("## "+g); } out.push([i.sis, i.desc].concat(i.tipo !== "apf" || i.it ? [i.tipo||"apf", i.it ? i.it.join(",") : ""] : []).join(" | ").replace(/ \| $/, "")); }); return out.join("\n"); };
+const textToItems = t => { let g = null; const out = []; t.split("\n").map(l => l.trim()).filter(Boolean).forEach(l => {
+  if (l.startsWith("##")){ g = l.replace(/^#+\s*/,"") || null; return; }
+  const [sis, desc, tp, iters] = l.split("|").map(s => s.trim());
+  const tl = (tp||"").toLowerCase();
+  const it = {sis:sis||"", desc:desc||sis||"", tipo: tl==="sino" ? "sino" : tl==="texto" ? "texto" : "apf"};
+  const nums = (iters||"").split(/[,\s]+/).map(x => parseInt(x,10)).filter(x => x > 0); if (nums.length) it.it = nums;
+  if (g) it.grupo = g; out.push(it); }); return out; };
+
+/** Editor de un plan: nombre, tipo, equipos y tareas (cada una con su intervalo y checklist) */
+function fPlan(p){
+  const isNew = !p;
+  const d = isNew ? {id:"p-"+nid(), nombre:"", tipo:"", tareas:[], activos:[]} : JSON.parse(JSON.stringify(p));
+  let equipos = D.camiones.filter(c => (c.pautaIds||[]).includes(d.id)).map(c => c.pat).join(", ");
+  const pie = (txt) => dlg.querySelector("#plan-msg").textContent = txt || "";
+  const vistaPlan = () => {
+    dlg.style.width = "min(760px,96vw)";
+    dlg.innerHTML = `<form><h2>${isNew?"Nuevo plan":"Editar plan"}</h2>
+      <label>Nombre<input name="nombre" value="${esc(d.nombre)}" required></label>
+      <label>Aplica a<select name="tipo">${TIPOS_EQ.map(t => `<option value="${esc(t)}"${d.tipo===t?" selected":""}>${t||"—"}</option>`).join("")}</select></label>
+      <label>Equipos que usan este plan (números separados por coma)<textarea name="equipos" rows="2">${esc(equipos)}</textarea></label>
+      <div class="sec" style="margin-top:4px">Tareas</div>
+      <div style="border:1px solid var(--line);border-radius:10px;margin-bottom:10px">${d.tareas.length ? d.tareas.map((t,i) => `<div style="display:flex;gap:8px;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid var(--line)"><div><b>${esc(t.nombre)}</b><div class="sub">${t.cadaKm?`Cada ${Number(t.cadaKm).toLocaleString("es-CL")} km`:"Sin intervalo (manual)"} · ${t.items.length} ítems</div></div><div style="display:flex;gap:6px"><button type="button" class="btn sm" data-t="${i}">Editar</button><button type="button" class="btn sm danger" data-d="${i}">Quitar</button></div></div>`).join("") : `<div class="sub" style="padding:10px 12px">Sin tareas.</div>`}</div>
+      <button type="button" class="btn sm" data-nt>+ Nueva tarea</button>
+      <div id="plan-msg" style="color:var(--red);margin-top:8px"></div>
+      <div class="btns"><button type="button" class="btn" data-x>Cancelar</button><button class="btn pri">Guardar plan</button></div></form>`;
+    const fm = dlg.querySelector("form");
+    const leer = () => { d.nombre = fm.elements.nombre.value.trim(); d.tipo = fm.elements.tipo.value; equipos = fm.elements.equipos.value; };
+    fm.querySelector("[data-x]").onclick = () => dlg.close();
+    fm.querySelector("[data-nt]").onclick = () => { leer(); vistaTarea(null); };
+    fm.querySelectorAll("[data-t]").forEach(b => b.onclick = () => { leer(); vistaTarea(+b.dataset.t); });
+    fm.querySelectorAll("[data-d]").forEach(b => b.onclick = () => { leer(); const t = d.tareas[+b.dataset.d]; if (confirm(`¿Quitar la tarea "${t.nombre}"?`)){ d.tareas.splice(+b.dataset.d, 1); vistaPlan(); } else vistaPlan(); });
+    fm.onsubmit = e => { e.preventDefault(); leer();
+      if (!d.nombre){ pie("Falta el nombre."); return; }
+      const pats = [...new Set(equipos.split(/[,;\s]+/).map(x => normId(x)).filter(Boolean))];
+      const faltan = pats.filter(x => !camion(x));
+      if (faltan.length && !confirm(`${faltan.length} equipos no existen aún en el tablero (${faltan.slice(0,8).join(", ")}${faltan.length>8?"…":""}). ¿Crearlos?`)) return;
+      faltan.forEach(x => D.camiones.push({pat:x, marca:"", base:"", tipo:d.tipo==="Estanque"?"":d.tipo, km:null, estado:"operativo", intKm:10000, intDias:90, pautaIds:[], mant:{}}));
+      D.camiones.forEach(c => { c.pautaIds = (c.pautaIds||[]).filter(id => id !== d.id); if (pats.includes(c.pat)) c.pautaIds.push(d.id); });
+      if (isNew) D.pautas.push(d); else Object.assign(p, d);
+      save(); dlg.close(); render(); };
+  };
+  const vistaTarea = (idx) => {
+    const t = idx == null ? {id:"t"+(Math.max(0, ...d.tareas.map(x => +String(x.id).slice(1)||0)) + 1), nombre:"", cadaKm:null, items:[]} : d.tareas[idx];
+    dlg.innerHTML = `<form><h2>${idx==null?"Nueva tarea":"Tarea"}</h2>
+      <label>Nombre<input name="nombre" value="${esc(t.nombre)}" required></label>
+      <label>Se realiza cada (km, vacío si es manual)<input name="cadaKm" type="number" min="0" step="any" value="${t.cadaKm ?? ""}"></label>
+      <label>Ítems del checklist, uno por línea: SISTEMA | DESCRIPCIÓN. Después de la descripción puedes agregar | sino (Sí / No / N/A), | texto (campo de observación) o | apf (Aprobó / Alerta / Falló, por defecto), y otro | con los ciclos en que aplica, por ejemplo | apf | 2,4,6. Una línea ## NOMBRE crea un bloque.<textarea name="items" rows="12">${esc(itemsToText(t.items))}</textarea></label>
+      <div class="btns"><button type="button" class="btn" data-x>Volver</button><button class="btn pri">Aceptar</button></div></form>`;
+    const fm = dlg.querySelector("form");
+    fm.querySelector("[data-x]").onclick = vistaPlan;
+    fm.onsubmit = e => { e.preventDefault();
+      t.nombre = fm.elements.nombre.value.trim(); t.cadaKm = num(fm.elements.cadaKm.value); t.items = textToItems(fm.elements.items.value);
+      if (idx == null) d.tareas.push(t);
+      vistaPlan(); };
+  };
+  vistaPlan(); dlg.showModal();
+}
+/** Asigna a cada camión los planes según la lista de activos vinculados que trae Fracttal */
+function asignarFracttal(){
+  const faltan = new Set();
+  D.pautas.forEach(p => (p.activos||[]).forEach(id => { if (!camion(id)) faltan.add(id); }));
+  let crear = false;
+  if (faltan.size) crear = confirm(`${faltan.size} equipos de Fracttal no están en el tablero. ¿Crearlos (sin km hasta que importes el Excel)?`);
+  let n = 0;
+  D.pautas.forEach(p => (p.activos||[]).forEach(id => {
+    let c = camion(id);
+    if (!c && crear){ c = {pat:id, marca:"", base:"", tipo:(p.tipo==="Estanque"?"":p.tipo), km:null, estado:"operativo", intKm:10000, intDias:90, pautaIds:[], mant:{}}; D.camiones.push(c); }
+    if (!c) return;
+    c.pautaIds = c.pautaIds || [];
+    if (!c.pautaIds.includes(p.id)){ c.pautaIds.push(p.id); n++; }
+    if (!c.tipo && p.tipo && p.tipo !== "Estanque") c.tipo = p.tipo;
+  }));
+  save(); render(); alert(`${n} asignaciones de planes aplicadas.`);
+}
+const RES = t => t==="sino" ? [["si","Sí"],["no","No"],["na","N/A"]] : [["apf","Aprobó"],["alerta","Alerta"],["fallo","Falló"]];
+const grupoDe = (p, t) => `${p.nombre.replace(/^FLOTA\s*-?\s*(PLAN|PAUTA)\s+(DE\s+)?MANTEN[A-Z]+\s+/i,"")} · ${t.nombre}`;
+/** Las tareas cíclicas de Fracttal marcan en qué ciclos aplica cada ítem (ciclo n = n × cada km) */
+function itemsPara(t){
+  const its = t.tarea.items, maxIt = Math.max(0, ...its.flatMap(i => i.it || []));
+  if (!maxIt || !t.tarea.cadaKm || t.nk == null) return its;
+  const n = Math.max(1, Math.round(t.nk / t.tarea.cadaKm)), nn = ((n - 1) % maxIt) + 1;
+  return its.filter(i => !i.it || i.it.includes(nn));
+}
+function genOT(c){
+  const due = prev(c).tareas.filter(t => t.st === "vencido" || t.st === "proximo");
+  if (!due.length) return;
+  const keys = due.map(t => t.key);
+  const ya = D.ots.find(o => o.pat === c.pat && otAbierta(o) && (o.keys||[]).some(k => keys.includes(k)));
+  if (ya){ alert(`Ya hay una OT abierta con alguna de estas tareas para ${c.pat} (OT #${ya.id}).`); return; }
+  const items = [];
+  due.forEach(t => { const g = grupoDe(t.plan, t.tarea);
+    const its = itemsPara(t);
+    if (its.length) its.forEach(i => items.push({grupo:g, sis:i.sis, desc:i.desc, tipo:i.tipo, res:null}));
+    else items.push({grupo:g, sis:"GENERAL", desc:"Realizar "+t.tarea.nombre+" (checklist aún no cargado en el plan)", tipo:"sino", res:null}); });
+  const id = nid();
+  D.ots.push({id, pat:c.pat, tipo:"preventivo", desc:due.map(t => t.tarea.nombre).join(" + "), prioridad:due.some(t => t.st==="vencido") ? "Alta" : "Media", resp:"", estado:"abierta", creada:hoy(), vence:addDays(hoy(),3), cerrada:null, costo:null, keys, kmOT:c.km, notas:"", items});
+  save(); S.f.ots = "abiertas"; go("ots");
+}
+function fChecklist(o){
+  dlg.style.width = "min(760px,96vw)";
+  dlg.innerHTML = `<form><h2>Checklist · OT #${o.id} · ${esc(o.pat)}</h2><div class="sub" style="margin-bottom:10px">${esc(o.desc)}${o.kmOT!=null?` · km al generar ${fkm(o.kmOT)}`:""}</div>
+    <div style="max-height:60vh;overflow:auto;border:1px solid var(--line);border-radius:10px">
+    ${o.items.map((it,i) => `${it.grupo && (i===0 || o.items[i-1].grupo !== it.grupo) ? `<div class="sec" style="margin:0;padding:8px 12px;background:var(--surface-2)">${esc(it.grupo)}</div>` : ""}<div style="padding:9px 12px;border-bottom:1px solid var(--line);display:grid;gap:6px"><div><b style="font-size:12px;color:var(--muted)">${esc(it.sis)}</b><div style="font-size:14px">${esc(it.desc)}</div></div>
+      ${it.tipo==="texto" ? `<input name="r${i}" value="${esc(it.res||"")}" placeholder="Observación" style="width:100%">` : `<div style="display:flex;gap:14px;flex-wrap:wrap">${RES(it.tipo).map(([v,l]) => `<label class="chk" style="margin:0"><input type="radio" name="r${i}" value="${v}"${it.res===v?" checked":""}>${l}</label>`).join("")}</div>`}</div>`).join("")}
+    </div>
+    <label style="margin-top:10px">Observación de la unidad<textarea name="notas" rows="3">${esc(o.notas||"")}</textarea></label>
+    <div class="btns"><button type="button" class="btn" data-x>Cancelar</button><button type="button" class="btn" data-ok="0">Guardar</button>${otAbierta(o)?`<button type="button" class="btn pri" data-ok="1">Guardar y cerrar OT</button>`:""}</div></form>`;
+  const fm = dlg.querySelector("form");
+  const cerrar = () => { dlg.close(); };
+  fm.querySelector("[data-x]").onclick = cerrar;
+  fm.querySelectorAll("[data-ok]").forEach(b => b.onclick = () => {
+    o.items.forEach((it,i) => { if (it.tipo === "texto"){ it.res = fm.elements["r"+i].value.trim() || null; return; } const r = fm.querySelector(`input[name="r${i}"]:checked`); it.res = r ? r.value : null; });
+    o.notas = fm.elements.notas.value.trim();
+    if (b.dataset.ok === "1"){
+      const pend = o.items.filter(i => i.tipo !== "texto" && !i.res).length;
+      if (pend && !confirm(`Faltan ${pend} ítems sin responder. ¿Cerrar la OT igual?`)) return;
+      const fallos = o.items.filter(i => i.res === "fallo");
+      o.estado = "cerrada"; o.cerrada = hoy(); alCerrar(o);
+      if (fallos.length && confirm(`${fallos.length} ítems quedaron como "Falló". ¿Registrarlos como fallas para seguimiento?`))
+        fallos.forEach(i => D.fallas.push({id:nid(), fecha:hoy(), pat:o.pat, desc:`${i.sis}: ${i.desc}`, severidad:"Media", reportado:"Checklist OT #"+o.id, solucion:""}));
+    }
+    save(); dlg.close(); render();
+  });
+  dlg.showModal();
+}
+dlg.addEventListener("close", () => { dlg.style.width = ""; });
+/** Al cerrar una OT con tareas de plan, el camión queda con esas mantenciones al día */
+function alCerrar(o){
+  const c = camion(o.pat); if (!c || !(o.keys||[]).length) return;
+  c.mant = c.mant || {};
+  const km = c.km != null ? c.km : o.kmOT;
+  o.keys.forEach(k => { c.mant[k] = {fecha:o.cerrada || hoy(), km:km || 0}; });
+  if (c.estado === "taller") c.estado = "operativo";
+}
+
+function vFallas(){
+  const list = D.fallas.filter(x => match(x.pat, x.desc, x.reportado, x.solucion)).sort((a,b) => b.fecha.localeCompare(a.fecha));
+  const cfg = syncCfg();
+  const h = `<div class="chips" style="justify-content:space-between"><span class="sub">Reportes de falla por camión y su solución${cfg.ultimo?` · última sincronización ${esc(cfg.ultimo)}`:""}</span><span style="display:flex;gap:8px;flex-wrap:wrap">${cfg.url?`<button class="btn" data-act="sync">Sincronizar app conductores</button>`:""}<button class="btn pri" data-act="new-falla">+ Reportar falla</button></span></div>`;
+  if (!list.length) return h + emptyMsg(D.fallas.length ? "Ninguna falla coincide." : "Sin fallas reportadas.");
+  return h + list.map(x => `<div class="row ${x.solucion?"":x.opera==="No"?"flag":"warn"}">
+    <div><span class="plate">${esc(x.pat)}</span><div class="sub">${fdate(x.fecha)}</div></div>
+    <div class="what"><div class="d">${x.nueva?tag("Nueva","blue")+" ":""}${esc(x.desc)}</div>
+      <div class="m">${tag(x.severidad, PRIO_TAG[x.severidad]||"gray")} ${x.solucion?tag("Resuelta","green"):tag("Sin resolver","amber")}${x.opera==="No"&&!x.solucion?" "+tag("No puede operar","red"):""}${x.ext&&!camion(x.pat)?" "+tag("Equipo no registrado","gray"):""}${x.reportado?`<span>Reportó: ${esc(x.reportado)}</span>`:""}${x.ext?`<span>Desde app conductor</span>`:""}${x.otId?`<span>OT #${x.otId}</span>`:""}${x.solucion?`<span>Solución: ${esc(x.solucion)}</span>`:""}</div></div>
+    <div class="acts">${x.otId?"":`<button class="btn sm pri" data-act="falla-ot" data-id="${x.id}">Crear OT</button>`}<button class="btn sm" data-act="edit-falla" data-id="${x.id}">Editar</button><button class="btn sm danger" data-act="del-falla" data-id="${x.id}">Eliminar</button></div></div>`).join("");
+}
+
+function vCostos(){
+  const items = [
+    ...D.gastos.map(g => ({fecha:g.fecha, pat:g.pat, concepto:g.concepto, monto:g.monto||0, g})),
+    ...D.ots.filter(o => o.costo && o.cerrada).map(o => ({fecha:o.cerrada, pat:o.pat, concepto:`OT #${o.id}: ${o.desc}`, monto:o.costo})),
+  ].filter(i => match(i.pat, i.concepto)).sort((a,b) => b.fecha.localeCompare(a.fecha));
+  const byMes = {}, byCam = {};
+  items.forEach(i => { byMes[i.fecha.slice(0,7)] = (byMes[i.fecha.slice(0,7)]||0)+i.monto; byCam[i.pat] = (byCam[i.pat]||0)+i.monto; });
+  const meses = Object.entries(byMes).sort((a,b)=>b[0].localeCompare(a[0])).slice(0,6);
+  const cams = Object.entries(byCam).sort((a,b)=>b[1]-a[1]);
+  const mxM = Math.max(1, ...meses.map(x=>x[1])), mxC = Math.max(1, ...cams.map(x=>x[1]));
+  const h = `<div class="chips" style="justify-content:space-between"><span class="sub">Incluye gastos registrados y costos de OTs cerradas</span><button class="btn pri" data-act="new-gasto">+ Nuevo gasto</button></div>`;
+  if (!items.length) return h + emptyMsg("Sin gastos registrados.");
+  const mlabel = m => `${MESES[+m.slice(5)-1]} ${m.slice(0,4)}`;
+  return h + `<div class="grid2">
+    <div class="panel"><h3>Por mes</h3><div class="bars">${meses.map(([m,v]) => `<div class="b" style="grid-template-columns:80px 1fr 92px"><span>${mlabel(m)}</span><span class="t"><i style="width:${v*100/mxM}%"></i></span><b>${fclp(v)}</b></div>`).join("")}</div></div>
+    <div class="panel"><h3>Por camión</h3><div class="bars">${cams.slice(0,8).map(([p,v]) => `<div class="b" style="grid-template-columns:80px 1fr 92px"><span>${esc(p)}</span><span class="t"><i style="width:${v*100/mxC}%"></i></span><b>${fclp(v)}</b></div>`).join("")}</div></div></div>
+  <div class="panel"><h3>Detalle</h3><div style="overflow-x:auto"><table class="tbl"><thead><tr><th>Fecha</th><th>Camión</th><th>Concepto</th><th class="r">Monto</th><th></th></tr></thead><tbody>
+    ${items.map(i => `<tr><td>${fdate(i.fecha)}</td><td><span class="plate">${esc(i.pat)}</span></td><td>${esc(i.concepto)}</td><td class="r">${fclp(i.monto)}</td><td class="r">${i.g?`<button class="btn sm" data-act="edit-gasto" data-id="${i.g.id}">Editar</button> <button class="btn sm danger" data-act="del-gasto" data-id="${i.g.id}">Eliminar</button>`:""}</td></tr>`).join("")}
+  </tbody></table></div></div>`;
+}
+
+function vHist(pat){
+  const c = camion(pat);
+  const ev = [
+    ...D.ots.filter(o => o.pat === pat).map(o => ({f:o.creada, t:`OT #${o.id} ${o.tipo==="preventivo"?"preventiva":"correctiva"} · ${o.desc} (${ESTADOS_OT[o.estado][0]})`})),
+    ...D.fallas.filter(x => x.pat === pat).map(x => ({f:x.fecha, t:`Falla (${x.severidad}) · ${x.desc}`})),
+    ...D.gastos.filter(g => g.pat === pat).map(g => ({f:g.fecha, t:`Gasto ${fclp(g.monto)} · ${g.concepto}`})),
+  ].sort((a,b) => b.f.localeCompare(a.f));
+  dlg.innerHTML = `<form><h2>Historial · ${esc(pat)} ${esc(c?.marca||"")}</h2>${ev.length ? `<ul style="padding-left:18px;margin:0 0 12px;display:grid;gap:6px">${ev.map(e => `<li><b>${fdate(e.f)}</b> · ${esc(e.t)}</li>`).join("")}</ul>` : `<div class="sub" style="margin-bottom:12px">Sin movimientos.</div>`}<div class="btns"><button type="button" class="btn pri" data-x>Cerrar</button></div></form>`;
+  dlg.querySelector("[data-x]").onclick = () => dlg.close(); dlg.showModal();
+}
+
+/* ================= Render ================= */
+function render(){
+  if (BASE_FIJA) S.base = BASE_FIJA;
+  const full = D;
+  const bases = [...new Set(["Puerto Montt","Chacabuco","Punta Arenas", ...full.camiones.map(c => c.base).filter(Boolean)])];
+  const sel = document.getElementById("base");
+  sel.innerHTML = `<option value="">Todas las bases</option>` + bases.map(b => `<option value="${esc(b)}"${S.base===b?" selected":""}>${esc(b)}</option>`).join("") + (full.camiones.some(c => !c.base) ? `<option value="-"${S.base==="-"?" selected":""}>Sin base asignada</option>` : "");
+  if (BASE_FIJA){ sel.innerHTML = `<option value="${esc(BASE_FIJA)}" selected>${esc(BASE_FIJA)}</option>`; sel.disabled = true; }
+  if (S.base){
+    const ok = c => S.base === "-" ? !c.base : c.base === S.base;
+    const cams = full.camiones.filter(ok), pats = new Set(cams.map(c => c.pat));
+    D = {...full, camiones:cams, ots:full.ots.filter(o => pats.has(o.pat)), fallas:full.fallas.filter(f => pats.has(f.pat)), gastos:full.gastos.filter(g => pats.has(g.pat))};
+  }
+  try{
+    const ab = D.ots.filter(otAbierta).length;
+    document.getElementById("tabs").innerHTML = TABS.map(([k,l]) => `<button class="tab" role="tab" data-act="tab" data-tab="${k}" aria-selected="${S.tab===k}">${l}${k==="ots"&&ab?` <span class="c">${ab}</span>`:""}</button>`).join("");
+    document.getElementById("q").style.display = S.tab === "resumen" ? "none" : "";
+    document.getElementById("view").innerHTML = {resumen:vResumen, camiones:vCamiones, ots:vOTs, prev:vPrev, pautas:vPautas, fallas:vFallas, costos:vCostos}[S.tab]();
+  } finally { D = full; }
+  document.getElementById("foot").textContent = `Datos compartidos (Google Drive) · ${full.camiones.length} camiones · ${full.ots.length} OTs${S.base ? ` · mostrando ${S.base==="-"?"equipos sin base":S.base}` : ""}${EMAIL?` · ${EMAIL} (${ROL})`:""}${ESTADO?` · ${ESTADO}`:""}`;
+  aplicarRol();
+}
+document.getElementById("base").addEventListener("change", e => { S.base = e.target.value; guardarUI(); render(); });
+
+/* ================= Eventos ================= */
+const byId = (arr, id) => arr.find(x => String(x.id) === String(id));
+document.addEventListener("click", e => {
+  const b = e.target.closest("[data-act]"); if (!b) return;
+  const a = b.dataset.act, id = b.dataset.id;
+  if (!permitido(a)){ alert("Tu rol ("+ROL+") no permite esta acción."); return; }
+  if (a === "tab") go(b.dataset.tab);
+  else if (a === "go") go(b.dataset.tab, b.dataset.f);
+  else if (a === "go-camiones") go("camiones");
+  else if (a === "chip"){ S.f[b.dataset.key] = b.dataset.v; render(); }
+  else if (a === "new-cam") fCamion();
+  else if (a === "edit-cam") fCamion(camion(id));
+  else if (a === "del-cam"){ if (confirm(`¿Eliminar ${id}? Sus órdenes, fallas y gastos se mantienen en el historial.`)){ D.camiones = D.camiones.filter(c => c.pat !== id); save(); render(); } }
+  else if (a === "hist") vHist(id);
+  else if (a === "hecha") fHecha(camion(id));
+  else if (a === "new-ot") fOT();
+  else if (a === "edit-ot") fOT(byId(D.ots, id));
+  else if (a === "close-ot"){ const o = byId(D.ots, id);
+    if (o.items && o.items.some(i => i.tipo !== "texto" && !i.res) && !confirm("Esta OT tiene ítems del checklist sin responder. ¿Cerrar igual?")) return;
+    o.estado = "cerrada"; o.cerrada = hoy(); alCerrar(o); save(); render(); }
+  else if (a === "checklist") fChecklist(byId(D.ots, id));
+  else if (a === "gen-ot") genOT(camion(id));
+  else if (a === "new-pauta") fPlan();
+  else if (a === "edit-pauta") fPlan(D.pautas.find(p => p.id === id));
+  else if (a === "ft-asignar") asignarFracttal();
+  else if (a === "um-imp") document.getElementById("um").click();
+  else if (a === "um-apply") aplicarUM();
+  else if (a === "del-pauta"){ if (confirm("¿Eliminar esta pauta? Los camiones que la usan quedan sin pauta.")){ D.pautas = D.pautas.filter(p => p.id !== id); D.camiones.forEach(c => { c.pautaIds = (c.pautaIds||[]).filter(x => x !== id); }); save(); render(); } }
+  else if (a === "del-ot"){ if (confirm("¿Eliminar esta orden de trabajo?")){ D.ots = D.ots.filter(o => String(o.id) !== id); save(); render(); } }
+  else if (a === "new-falla") fFalla();
+  else if (a === "edit-falla") fFalla(byId(D.fallas, id));
+  else if (a === "del-falla"){ if (confirm("¿Eliminar esta falla?")){ D.fallas = D.fallas.filter(x => String(x.id) !== id); save(); render(); } }
+  else if (a === "new-gasto") fGasto();
+  else if (a === "edit-gasto") fGasto(byId(D.gastos, id));
+  else if (a === "del-gasto"){ if (confirm("¿Eliminar este gasto?")){ D.gastos = D.gastos.filter(g => String(g.id) !== id); save(); render(); } }
+  else if (a === "sync") sincronizar();
+  else if (a === "sync-cfg") fSync();
+  else if (a === "falla-ot"){ const x = byId(D.fallas, id); const oid = nid();
+    D.ots.push({id:oid, pat:x.pat, tipo:"correctivo", desc:"Falla: "+x.desc, prioridad:SEV.includes(x.severidad)?x.severidad:"Media", resp:"", estado:"abierta", creada:hoy(), vence:addDays(hoy(), x.opera==="No"?1:3), cerrada:null, costo:null});
+    x.otId = oid; x.nueva = false; save(); render(); }
+  else if (a === "imp-km") document.getElementById("xl").click();
+  else if (a === "imp-apply") aplicarImport(b);
+  else if (a === "clave") fClave();
+  else if (a === "salir") salir();
+  else if (a === "demo") demo();
+  else if (a === "export") exportar();
+  else if (a === "import") document.getElementById("file").click();
+});
+document.getElementById("q").addEventListener("input", e => { S.q = e.target.value; render(); });
+document.getElementById("file").addEventListener("change", e => {
+  const f = e.target.files[0]; if (!f) return;
+  const r = new FileReader();
+  r.onload = () => { try{ const s = JSON.parse(r.result); if (!s.camiones) throw 0; if (confirm("Esto reemplaza los datos actuales. ¿Continuar?")){ D = Object.assign(EMPTY(), s); save(); render(); } }catch(_){ alert("Archivo de respaldo no válido."); } };
+  r.readAsText(f); e.target.value = "";
+});
+/* ===== Observaciones de conductores: se leen directo del servidor ===== */
+function syncCfg(){ return {url:true}; }
+function fSync(){}
+function sincronizar(){
+  google.script.run
+    .withSuccessHandler(j => {
+      const conocidos = new Set(D.fallas.map(f => f.ext).filter(Boolean)); let n = 0;
+      j.items.forEach(it => { if (conocidos.has(it.id)) return;
+        const pat = normId(it.equipo) || it.equipo;
+        D.fallas.push({id:nid(), ext:it.id, fecha:(it.fecha||"").slice(0,10) || hoy(), pat, desc:it.desc, severidad:SEV.includes(it.severidad)?it.severidad:"Media", reportado:it.conductor, solucion:"", opera:it.opera, nueva:true});
+        const cam = camion(pat); if (cam && it.km != null && it.km > (cam.km||0)){ cam.km = it.km; cam.kmFecha = (it.fecha||"").slice(0,10) || hoy(); }
+        if (cam && it.opera === "No" && cam.estado === "operativo") cam.estado = "detenido";
+        n++; });
+      save(); S.tab = "fallas"; render();
+      alert(n ? `${n} observaciones nuevas de conductores.` : "Sin observaciones nuevas.");
+    })
+    .withFailureHandler(e => alert("No pude leer las observaciones: "+(e && e.message ? e.message : e)))
+    .leerObservaciones(TOKEN);
+}
+
+/* ===== Importar últimas mantenciones (archivo fracttal_ultimas_mantenciones.json) ===== */
+let UM = null;
+const normTarea = t => String(t||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toUpperCase().replace(/\bKMS?\b/g,"").replace(/\s+/g," ").trim();
+document.getElementById("um").addEventListener("change", e => {
+  const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+  const r = new FileReader();
+  r.onload = () => { try{ leerUM(JSON.parse(r.result)); }catch(err){ alert("Archivo no válido: "+err.message); } };
+  r.readAsText(f);
+});
+function leerUM(j){
+  if (!j || !Array.isArray(j.items)) throw new Error("falta la lista items");
+  const ok = [], sinEq = [], sinPlan = [], viejos = [];
+  j.items.forEach(it => {
+    const id = normId(it.equipo); let c = camion(id), esNuevo = false;
+    if (!c){ c = {pat:id, pautaIds:[], mant:{}}; esNuevo = true; }
+    const nt = normTarea(it.tarea);
+    const buscar = ids => { for (const pid of ids){ const p = pautaPorId(pid); if (!p) continue; const t = p.tareas.find(x => normTarea(x.nombre) === nt); if (t) return {p, t}; } return null; };
+    let hit = buscar(c.pautaIds || []), nuevoPlan = false;
+    if (!hit){ const cand = D.pautas.filter(p => p.tareas.some(x => normTarea(x.nombre) === nt));
+      if (cand.length === 1){ hit = buscar([cand[0].id]); nuevoPlan = true; } }
+    if (!hit){ sinPlan.push(id+" ("+it.tarea+")"); return; }
+    const key = hit.p.id + "/" + hit.t.id, prevR = c.mant && c.mant[key];
+    if (prevR && prevR.fecha >= it.fecha){ viejos.push(id); return; }
+    ok.push({id, key, plan:hit.p, tarea:hit.t, fecha:it.fecha, km:it.km, actual:it.medidorActual, nuevoPlan, esNuevo});
+  });
+  UM = {ok, leido:j.leido};
+  const L = (arr, fn, max=10) => arr.length ? `<ul style="margin:4px 0 10px;padding-left:18px;font-size:13px">${arr.slice(0,max).map(fn).join("")}${arr.length>max?`<li>… y ${arr.length-max} más</li>`:""}</ul>` : "";
+  dlg.innerHTML = `<form><h2>Importar últimas mantenciones</h2>
+    <div class="sub" style="margin-bottom:8px">${j.items.length} registros del archivo${j.leido?` (leído el ${esc(j.leido)})`:""}. El km es el del odómetro cuando Fracttal activó la tarea, una aproximación de la última mantención.</div>
+    <div><b>${ok.length}</b> mantenciones por registrar${L(ok, x => `<li>${esc(x.id)}: ${esc(x.tarea.nombre)} · ${fkm(x.km)} · ${fdate(x.fecha)}${x.nuevoPlan?" · se asigna el plan":""}${x.esNuevo?" · equipo nuevo":""}</li>`)}</div>
+    ${sinEq.length?`<div class="sub"><b>${sinEq.length}</b> equipos del archivo no están en el tablero: ${esc([...new Set(sinEq)].slice(0,12).join(", "))}${sinEq.length>12?"…":""}</div>`:""}
+    ${sinPlan.length?`<div class="sub"><b>${sinPlan.length}</b> sin plan que coincida (asígnales su plan en Pautas): ${esc(sinPlan.slice(0,6).join("; "))}${sinPlan.length>6?"…":""}</div>`:""}
+    ${viejos.length?`<div class="sub">${viejos.length} ya tenían una mantención igual o más reciente y no se cambian.</div>`:""}
+    <div class="btns"><button type="button" class="btn" data-x>Cancelar</button><button type="button" class="btn pri" data-act="um-apply"${ok.length?"":" disabled"}>Aplicar</button></div></form>`;
+  dlg.querySelector("[data-x]").onclick = () => dlg.close(); dlg.showModal();
+}
+function aplicarUM(){
+  if (!UM) return;
+  UM.ok.forEach(x => { let c = camion(x.id);
+    if (!c){ c = {pat:x.id, marca:"", base:"", tipo:/RAMPLA/i.test(x.tarea.nombre) ? "Semirremolque" : "", km:null, estado:"operativo", intKm:10000, intDias:90, pautaIds:[], mant:{}}; D.camiones.push(c); }
+    c.mant = c.mant || {};
+    if (x.nuevoPlan && !(c.pautaIds||[]).includes(x.plan.id)){ c.pautaIds = c.pautaIds || []; c.pautaIds.push(x.plan.id); }
+    c.mant[x.key] = {fecha:x.fecha, km:x.km};
+    if (x.actual && x.actual > (c.km || 0)){ c.km = x.actual; c.kmFecha = UM.leido || hoy(); } });
+  const n = UM.ok.length; UM = null; save(); dlg.close(); render(); alert(n + " mantenciones registradas.");
+}
+
+/* ===== Importar km desde el Excel de la app de viajes (hojas "Viajes" y "Tractos") ===== */
+let PEND = null;
+const normId = v => { if (v == null || v === "") return null; const s = String(v).trim(); return /^\d+(\.0+)?$/.test(s) ? String(parseInt(s,10)) : s.toUpperCase(); };
+const toISO = v => v instanceof Date ? iso(v) : (typeof v === "string" && /^\d{4}-\d{2}-\d{2}/.test(v) ? v.slice(0,10) : null);
+document.getElementById("xl").addEventListener("change", e => {
+  const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+  if (typeof XLSX === "undefined"){ alert("No se pudo cargar el lector de Excel (requiere internet la primera vez)."); return; }
+  const r = new FileReader();
+  r.onload = () => { try{ leerExcel(XLSX.read(r.result, {type:"array", cellDates:true})); }catch(err){ alert("No pude leer el archivo: "+err.message); } };
+  r.readAsArrayBuffer(f);
+});
+function hoja(wb, nombre){ const n = wb.SheetNames.find(x => x.trim().toLowerCase() === nombre); return n ? XLSX.utils.sheet_to_json(wb.Sheets[n], {defval:null}) : null; }
+function leerExcel(wb){
+  const tr = hoja(wb, "tractos"), vi = hoja(wb, "viajes");
+  if (!tr || !vi){ alert('El archivo debe tener las hojas "Viajes" y "Tractos".'); return; }
+  const m = new Map();
+  tr.forEach(r => { const id = normId(r["Tracto"]); if (!id || String(r["Activo"]||"").trim().toUpperCase() === "NO") return;
+    m.set(id, {id, base:r["Base"]||"", tipo:"Tractocamión", km:num(r["Km inicial"]), fecha:null, origen:"inicial"}); });
+  vi.forEach(r => { const id = normId(r["Tracto"]), km = num(r["Km"]), fh = toISO(r["Fecha y hora"]) ;
+    if (!id || km == null) return;
+    const cur = m.get(id) || {id, base:r["Base"]||"", km:null, fecha:null, origen:"inicial"};
+    if (!cur.fecha || (fh && fh >= cur.fecha) ){ cur.km = km; cur.fecha = fh; cur.origen = "viaje"; if (r["Base"]) cur.base = r["Base"]; }
+    m.set(id, cur); });
+  const baseEq = new Map();
+  (hoja(wb, "equipos") || []).forEach(r => { const id = normId(r["Equipo"]); if (id && r["Base"] && String(r["Activo"]||"").trim().toUpperCase() !== "NO") baseEq.set(id, String(r["Base"]).trim()); });
+  m.forEach((x, id) => { if (x.base && !baseEq.has(id)) baseEq.set(id, x.base); });
+  const conBase = [...baseEq].filter(([id, b]) => { const c = camion(id); return c && !c.base; });
+  const nuevos = [], upd = [], igual = [], bajan = [], sinKm = [];
+  m.forEach(x => {
+    if (x.km == null){ sinKm.push(x); return; }
+    const c = camion(x.id);
+    if (!c) nuevos.push(x);
+    else if (c.km == null || x.km > c.km) upd.push({...x, antes:c.km});
+    else if (x.km === c.km) igual.push(x);
+    else bajan.push({...x, antes:c.km});
+  });
+  PEND = {nuevos, upd, bajan, conBase};
+  const L = (arr, fn, max=12) => arr.length ? `<ul style="margin:4px 0 10px;padding-left:18px;font-size:13px">${arr.slice(0,max).map(fn).join("")}${arr.length>max?`<li>… y ${arr.length-max} más</li>`:""}</ul>` : "";
+  dlg.innerHTML = `<form><h2>Importar km</h2>
+    <div class="sub" style="margin-bottom:8px">${m.size} tractos leídos del Excel. El km es el del último viaje registrado de cada tracto (o el Km inicial si aún no tiene viajes).</div>
+    <div><b>${upd.length}</b> camiones con km nuevo${L(upd, x => `<li>${esc(x.id)}: ${fkm(x.antes)} → <b>${fkm(x.km)}</b></li>`)}</div>
+    <div><b>${nuevos.length}</b> camiones nuevos${L(nuevos, x => `<li>${esc(x.id)} ${x.base?`(${esc(x.base)}) `:""}· ${fkm(x.km)}</li>`)}</div>
+    ${bajan.length?`<div style="color:var(--red)"><b>${bajan.length}</b> con km menor al guardado (se omiten, revisa el Excel)${L(bajan, x => `<li>${esc(x.id)}: guardado ${fkm(x.antes)}, Excel ${fkm(x.km)}</li>`)}</div>`:""}
+    ${conBase.length?`<div><b>${conBase.length}</b> equipos que ya tenías reciben su base (${esc([...new Set(conBase.map(x => x[1]))].join(", "))})</div>`:""}
+    <div class="sub">${igual.length} sin cambios${sinKm.length?` · ${sinKm.length} sin km en el Excel`:""}</div>
+    ${nuevos.length?`<label class="chk" style="margin-top:10px"><input type="checkbox" id="impNuevos" checked>Agregar los camiones nuevos</label>`:""}
+    <div class="btns"><button type="button" class="btn" data-x>Cancelar</button><button type="button" class="btn pri" data-act="imp-apply"${upd.length||nuevos.length||conBase.length?"":" disabled"}>Aplicar</button></div></form>`;
+  dlg.querySelector("[data-x]").onclick = () => dlg.close(); dlg.showModal();
+}
+function aplicarImport(){
+  if (!PEND) return;
+  const hoyS = hoy(); let n = 0;
+  PEND.upd.forEach(x => { const c = camion(x.id); c.km = x.km; c.kmFecha = x.fecha || hoyS; if (x.base && !c.base) c.base = x.base; if (x.tipo && !c.tipo) c.tipo = x.tipo; n++; });
+  PEND.conBase.forEach(([id, b]) => { const c = camion(id); if (c && !c.base){ c.base = b; n++; } });
+  const chk = document.getElementById("impNuevos");
+  if (PEND.nuevos.length && (!chk || chk.checked)) PEND.nuevos.forEach(x => { D.camiones.push({pat:x.id, marca:"", base:x.base, tipo:x.tipo||"", km:x.km, kmFecha:x.fecha || hoyS, estado:"operativo", intKm:10000, intDias:90}); n++; });
+  PEND = null; save(); dlg.close(); render();
+}
+
+function exportar(){
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(D, null, 1)], {type:"application/json"}));
+  a.download = `respaldo_mantenimiento_${hoy()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+function demo(){
+  if (D.camiones.length && !confirm("Se agregarán datos de ejemplo a los que ya tienes. ¿Continuar?")) return;
+  const h = hoy(), d = n => addDays(h, n);
+  D.camiones.push(
+    {pat:"DEMO01", marca:"Camión de ejemplo A", km:182400, estado:"operativo", ultFecha:d(-95), ultKm:172000, intKm:10000, intDias:90},
+    {pat:"DEMO02", marca:"Camión de ejemplo B", km:96500, estado:"taller", ultFecha:d(-40), ultKm:90000, intKm:10000, intDias:90},
+    {pat:"DEMO03", marca:"Camión de ejemplo C", km:55300, estado:"operativo", ultFecha:d(-80), ultKm:46000, intKm:10000, intDias:90},
+    {pat:"DEMO04", marca:"Camión de ejemplo D", km:210100, estado:"detenido", ultFecha:d(-20), ultKm:205000, intKm:10000, intDias:90},
+    {pat:"DEMO05", marca:"Camión de ejemplo E", km:12000, estado:"operativo", ultFecha:d(-10), ultKm:10000, intKm:10000, intDias:90});
+  const ot = (pat,tipo,desc,prioridad,estado,c,v,costo) => D.ots.push({id:nid(), pat, tipo, desc, prioridad, resp:"Taller ejemplo", estado, creada:d(c), vence:d(v), cerrada:estado==="cerrada"?d(v):null, costo});
+  ot("DEMO02","correctivo","Cambio de embrague","Alta","proceso",-3,2,null);
+  ot("DEMO04","correctivo","Falla de frenos","Muy alta","abierta",-6,-2,null);
+  ot("DEMO01","preventivo","Mantención 180.000 km","Media","abierta",-1,5,null);
+  ot("DEMO03","preventivo","Cambio de aceite y filtros","Baja","revision",-4,0,185000);
+  ot("DEMO05","preventivo","Revisión inicial","Baja","cerrada",-10,-10,90000);
+  ot("DEMO03","correctivo","Cambio de neumático","Media","cerrada",-12,-11,240000);
+  ot("DEMO01","preventivo","Mantención 170.000 km","Media","cerrada",-95,-95,320000);
+  D.fallas.push({id:nid(), fecha:d(-6), pat:"DEMO04", desc:"Pérdida de presión de frenos en ruta", severidad:"Muy alta", reportado:"Conductor", solucion:""},
+                {id:nid(), fecha:d(-12), pat:"DEMO03", desc:"Neumático reventado", severidad:"Media", reportado:"Conductor", solucion:"Cambio de neumático"});
+  D.gastos.push({id:nid(), fecha:d(-5), pat:"DEMO02", concepto:"Kit de embrague", monto:410000}, {id:nid(), fecha:d(-2), pat:"DEMO04", concepto:"Cañerías de freno", monto:95000});
+  save(); render();
+}
+iniciar();
+</script>
+</body>
+</html>
