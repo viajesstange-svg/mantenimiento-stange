@@ -67,16 +67,16 @@ dialog label{display:block;font-size:13px;color:var(--muted);margin-bottom:10px}
 dialog input,dialog select,dialog textarea{display:block;width:100%;margin-top:3px;border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:8px 10px}
 dialog label.chk{display:flex;gap:8px;align-items:center;color:var(--ink)}dialog label.chk input{width:auto;margin:0}
 dialog .btns{display:flex;gap:8px;justify-content:flex-end;margin-top:6px}
-.kan{display:grid;grid-template-columns:repeat(4,minmax(290px,1fr));gap:12px;align-items:start;overflow-x:auto;padding-bottom:8px}
+.kan{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;align-items:start;padding-bottom:8px}
 .kcol{background:var(--surface-2);border-radius:14px;padding:10px;min-width:0}
 .kh{display:flex;align-items:center;gap:8px;font-weight:700;margin:2px 4px 10px;border-left:4px solid var(--c,#999);padding-left:8px}
 .kh .n{margin-left:auto;font-size:13px;color:var(--muted);font-weight:600}
-.kb{display:grid;gap:8px;max-height:68vh;overflow:auto}
+.kb{display:grid;gap:8px}
 .kc{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px;display:grid;gap:6px}
 .kc.flag{border-left:4px solid var(--red)}.kc.warn{border-left:4px solid var(--amber)}
 .kc .ks{font-size:13px;color:var(--muted);display:flex;gap:4px 10px;flex-wrap:wrap}
 .kc .kact{display:flex;gap:6px;flex-wrap:wrap;margin-top:2px}
-@media(max-width:900px){.kan{grid-template-columns:repeat(4,86vw)}}
+@media(max-width:900px){.kan{grid-template-columns:repeat(4,86vw);overflow-x:auto}}
 </style>
 </head>
 <body>
@@ -995,9 +995,10 @@ function vHist(pat){
 function render(){
   if (BASE_FIJA) S.base = BASE_FIJA;
   const full = D;
+  if (S.base === "-") S.base = "";
   const bases = [...new Set(["Puerto Montt","Chacabuco","Punta Arenas", ...full.camiones.map(c => c.base).filter(Boolean)])];
   const sel = document.getElementById("base");
-  sel.innerHTML = `<option value="">Todas las bases</option>` + bases.map(b => `<option value="${esc(b)}"${S.base===b?" selected":""}>${esc(b)}</option>`).join("") + (full.camiones.some(c => !c.base) ? `<option value="-"${S.base==="-"?" selected":""}>Sin base asignada</option>` : "");
+  sel.innerHTML = `<option value="">Todas las bases</option>` + bases.map(b => `<option value="${esc(b)}"${S.base===b?" selected":""}>${esc(b)}</option>`).join("");
   if (BASE_FIJA){ sel.innerHTML = `<option value="${esc(BASE_FIJA)}" selected>${esc(BASE_FIJA)}</option>`; sel.disabled = true; }
   if (S.base){
     const ok = c => S.base === "-" ? !c.base : c.base === S.base;
@@ -1008,6 +1009,7 @@ function render(){
     const ab = D.ots.filter(otAbierta).length;
     document.getElementById("tabs").innerHTML = TABS.map(([k,l]) => `<button class="tab" role="tab" data-act="tab" data-tab="${k}" aria-selected="${S.tab===k}">${l}${k==="tareas"&&ab?` <span class="c">${ab}</span>`:""}${k==="solicitudes"&&D.fallas.some(x=>x.ext&&x.nueva)?` <span class="c">${D.fallas.filter(x=>x.ext&&x.nueva).length}</span>`:""}</button>`).join("");
     document.getElementById("q").style.display = S.tab === "resumen" ? "none" : "";
+    document.querySelectorAll(".wrap").forEach(w => { w.style.maxWidth = S.tab === "tareas" ? "1900px" : ""; });
     document.getElementById("view").innerHTML = {resumen:vResumen, camiones:vCamiones, tareas:vTareas, solicitudes:() => vFallas(true), pautas:vPautas, fallas:() => vFallas(false), costos:vCostos}[S.tab]();
   } finally { D = full; }
   revisarAlertasMant();
