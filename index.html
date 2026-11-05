@@ -620,18 +620,22 @@ function chips(key, opts){
 function vCamiones(){
   const all = D.camiones;
   const f = S.f.camiones;
-  const list = all.filter(c => (f==="todos" || (f==="detenidos" ? c.estado!=="operativo" : c.estado===f)) && match(c.pat, c.marca));
+  const list = all.filter(c => (f==="todos" || (f==="detenidos" ? c.estado!=="operativo" : c.estado===f)) && (match(c.pat, c.marca) || (S.q.trim() && c.par && match(c.par))));
   let h = `<div class="chips" style="justify-content:space-between"><span style="display:flex;gap:8px;flex-wrap:wrap">${[["todos","Todos",all.length],["operativo","Operativos",all.filter(c=>c.estado==="operativo").length],["detenidos","Detenidos o en taller",all.filter(c=>c.estado!=="operativo").length]].map(([k,l,n]) => `<button class="chip" data-act="chip" data-key="camiones" data-v="${k}" aria-pressed="${f===k}">${l} · ${n}</button>`).join("")}</span><span style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn pri" data-act="new-cam">+ Nuevo camión</button></span></div>`;
   if (D.kmAuto) h = `<div class="sub" style="margin-bottom:8px">Km actualizados automáticamente desde la planilla de viajes el ${fdate(D.kmAuto.fecha)} · ${D.kmAuto.actualizados} equipos${D.kmAuto.nuevos?` · ${D.kmAuto.nuevos} equipos nuevos`:""}</div>` + h;
   if (!all.length) return h + emptyMsg("Sin camiones registrados.", demoBtns);
   if (!list.length) return h + emptyMsg("Ningún camión coincide.");
-  return h + list.sort((a,b)=>a.pat.localeCompare(b.pat)).map(c => {
+  const orden = []; list.slice().sort((a,b)=>a.pat.localeCompare(b.pat)).forEach(c => {
+    if (orden.includes(c)) return; const q = parDe(c);
+    if (q && !esTractoC(c) && esTractoC(q) && list.includes(q)) return;      // el semi se agrega bajo su tracto
+    orden.push(c); if (q && list.includes(q) && !orden.includes(q)) orden.push(q); });
+  return h + orden.map(c => {
     const p = prev(c), st = ESTADOS_CAM[c.estado]||ESTADOS_CAM.operativo;
     const ots = D.ots.filter(o => o.pat === c.pat), ab = ots.filter(otAbierta).length;
     return `<div class="row ${c.estado==="detenido"?"flag":c.estado==="taller"?"warn":""}">
       <div><span class="plate">${esc(c.pat)}</span></div>
       <div class="what"><div class="d">${esc(c.marca||"Sin modelo")} ${tag(st[0], st[1])}${p.st==="vencido"?" "+tag("Preventivo vencido","red"):p.st==="proximo"?" "+tag("Preventivo próximo","amber"):""}</div>
-        <div class="m"><span>${fkm(c.km)}${c.kmFecha?` <small>(al ${fdate(c.kmFecha)})</small>`:""}</span>${c.base?`<span>${esc(c.base)}</span>`:""}${c.par?`<span><b>${esc(parInfo(c))}</b></span>`:""}<span>Última mantención ${fdate(c.ultFecha)}${c.ultKm!=null?` (${fkm(c.ultKm)})`:""}</span><span>Próxima ${p.nk!=null?fkm(p.nk):""}${p.nk!=null&&p.nd?" o ":""}${p.nd?fdate(p.nd):""}${p.nk==null&&!p.nd?"—":""}</span><span>${ab} OT abierta${ab===1?"":"s"} · ${ots.length} en historial</span>${(c.pautaIds||[]).length?`<span>Pautas: ${esc((c.pautaIds||[]).map(id => (pautaPorId(id)||{nombre:id}).nombre.replace(/^FLOTA\s*-?\s*(PLAN|PAUTA)\s+(DE\s+)?MANTEN[A-Z]+\s+/i,"")).join(" + "))}</span>`:""}</div></div>
+        <div class="m"><span>${fkm(c.km)}${c.kmFecha?` <small>(al ${fdate(c.kmFecha)})</small>`:""}</span>${c.base?`<span>${esc(c.base)}</span>`:""}${c.par?`<span><b>${esTractoC(c)?"Semi":"Tracto"} ${esc(c.par)}</b> <small>(equipo aparte, con su propia pauta y OT)</small></span>`:""}<span>Última mantención ${fdate(c.ultFecha)}${c.ultKm!=null?` (${fkm(c.ultKm)})`:""}</span><span>Próxima ${p.nk!=null?fkm(p.nk):""}${p.nk!=null&&p.nd?" o ":""}${p.nd?fdate(p.nd):""}${p.nk==null&&!p.nd?"—":""}</span><span>${ab} OT abierta${ab===1?"":"s"} · ${ots.length} en historial</span>${(c.pautaIds||[]).length?`<span>Pautas: ${esc((c.pautaIds||[]).map(id => (pautaPorId(id)||{nombre:id}).nombre.replace(/^FLOTA\s*-?\s*(PLAN|PAUTA)\s+(DE\s+)?MANTEN[A-Z]+\s+/i,"")).join(" + "))}</span>`:""}</div></div>
       <div class="acts"><button class="btn sm" data-act="hist" data-id="${esc(c.pat)}">Historial</button><button class="btn sm" data-act="edit-cam" data-id="${esc(c.pat)}">Editar</button><button class="btn sm danger" data-act="del-cam" data-id="${esc(c.pat)}">Eliminar</button></div></div>`;
   }).join("");
 }
@@ -659,7 +663,7 @@ function vPrev(){
   const f = S.f.prev;
   const all = D.camiones.map(c => ({c, p:prev(c)}));
   const n = k => all.filter(x => x.p.st === k).length;
-  const list = all.filter(x => (f==="todos" || x.p.st===f) && match(x.c.pat, x.c.marca));
+  const list = all.filter(x => (f==="todos" || x.p.st===f) && (match(x.c.pat, x.c.marca) || (S.q.trim() && x.c.par && match(x.c.par))));
   const ord = {vencido:0, proximo:1, ok:2, sin:3};
   const h = `<div class="chips">${[["todos","Todos",all.length],["vencido","Vencidos",n("vencido")],["proximo","Próximos",n("proximo")],["ok","Al día",n("ok")]].map(([k,l,c]) => `<button class="chip" data-act="chip" data-key="prev" data-v="${k}" aria-pressed="${f===k}">${l} · ${c}</button>`).join("")}</div>`;
   if (!all.length) return h + emptyMsg("Agrega camiones con su última mantención e intervalo para ver el preventivo.", demoBtns);
@@ -673,7 +677,7 @@ function vPrev(){
     return `<div class="row ${p.st==="vencido"?"flag":p.st==="proximo"?"warn":""}">
       <div><span class="plate">${esc(c.pat)}</span></div>
       <div class="what"><div class="d">${tag(lbl[0],lbl[1])} ${esc(c.marca||c.tipo||"")}</div>
-        <div class="m">${p.tareas.length ? lineas : `${p.kmR!=null?`<span>${p.kmR<=0?`Pasado por ${fkm(-p.kmR)}`:`Faltan ${fkm(p.kmR)}`} (próx. ${fkm(p.nk)})</span>`:""}${p.dR!=null?`<span>${p.dR<0?`Vencido hace ${-p.dR} días`:`Faltan ${p.dR} días`} (${fdate(p.nd)})</span>`:""}`}${p.st==="sin"?`<span>${(c.pautaIds||[]).length?"Registra la última mantención de cada tarea (botón de la derecha)":"Asigna una pauta en Pautas o define el intervalo en Editar"}</span>`:""}${sinreg&&p.tareas.length?`<span>${sinreg} tarea${sinreg===1?"":"s"} sin registro</span>`:""}<span>Km actual ${fkm(c.km)}</span>${c.par?`<span><b>${esc(parInfo(c))}</b></span>`:""}</div></div>
+        <div class="m">${p.tareas.length ? lineas : `${p.kmR!=null?`<span>${p.kmR<=0?`Pasado por ${fkm(-p.kmR)}`:`Faltan ${fkm(p.kmR)}`} (próx. ${fkm(p.nk)})</span>`:""}${p.dR!=null?`<span>${p.dR<0?`Vencido hace ${-p.dR} días`:`Faltan ${p.dR} días`} (${fdate(p.nd)})</span>`:""}`}${p.st==="sin"?`<span>${(c.pautaIds||[]).length?"Registra la última mantención de cada tarea (botón de la derecha)":"Asigna una pauta en Pautas o define el intervalo en Editar"}</span>`:""}${sinreg&&p.tareas.length?`<span>${sinreg} tarea${sinreg===1?"":"s"} sin registro</span>`:""}<span>Km actual ${fkm(c.km)}</span>${c.par?`<span><b>${esTractoC(c)?"Semi":"Tracto"} ${esc(c.par)}</b> <small>(aparte, con su propia pauta y OT)</small></span>`:""}</div></div>
       <div class="acts">${due.length?`<button class="btn sm pri" data-act="gen-ot" data-id="${esc(c.pat)}">Generar OT${due.length>1?` (${due.length} tareas)`:""}</button>`:""}<button class="btn sm" data-act="hecha" data-id="${esc(c.pat)}">Registrar mantención hecha</button></div></div>`;
   }).join("");
 }
@@ -923,7 +927,11 @@ function revisarAlertasMant(){
 function mostrarAlertasMant(lista){
   const corto = n => String(n).replace(/^MANTENIMIENTO PROGRAMADO\s*/i,"Programado ").replace(/^MANTENCIÓN\s*/i,"");
   const venc = lista.filter(x => x.st === "vencido"), prox = lista.filter(x => x.st === "proximo");
-  const fila = x => { const cc = camion(x.pat); return `<li><b>${esc(x.pat)}</b> · ${esc(corto(x.tarea))}${x.kmR==null?"":x.kmR<=0?` — pasada por ${fkm(-x.kmR)}`:` — faltan ${fkm(x.kmR)}`}${cc&&cc.par?`<br><small>con su pareja: ${esc(parInfo(cc))}</small>`:""}</li>`; };
+  const fila = x => { const cc = camion(x.pat); let extra = "";
+    if (cc && cc.par){ const q = parDe(cc), rol = esTractoC(cc) ? "Semi" : "Tracto";
+      if (q){ const pq = prev(q), ts = pq.tareas.filter(t => t.st !== "sinreg").sort((p,r) => p.kmR - r.kmR), t = ts[0];
+        extra = `<div style="margin-left:6px;color:var(--muted,#667)">↳ ${rol} <b>${esc(q.pat)}</b> (su propia pauta y OT): ${t ? esc(corto(t.tarea.nombre)) + (t.kmR<=0 ? ` — pasada por ${fkm(-t.kmR)}` : ` — faltan ${fkm(t.kmR)}`) : ST_PREV_TXT[pq.st]}</div>`; } }
+    return `<li><b>${esc(x.pat)}</b> · ${esc(corto(x.tarea))}${x.kmR==null?"":x.kmR<=0?` — pasada por ${fkm(-x.kmR)}`:` — faltan ${fkm(x.kmR)}`}${extra}</li>`; };
   const bloque = (arr, cls, txt) => arr.length ? `<div style="margin-top:10px"><span class="tag ${cls}">${txt} · ${arr.length}</span><ul style="margin:6px 0 0;padding-left:18px;font-size:14px;display:grid;gap:3px">${arr.slice(0,14).map(fila).join("")}${arr.length>14?`<li>… y ${arr.length-14} más</li>`:""}</ul></div>` : "";
   dlg.style.width = "min(560px,96vw)";
   dlg.innerHTML = `<form><h2>⚠ Equipos listos para mantenimiento</h2><div class="sub">Con los km actualizados, según las pautas, estos equipos ya llegaron o están por llegar a su mantención (cambios desde tu última visita).</div>
