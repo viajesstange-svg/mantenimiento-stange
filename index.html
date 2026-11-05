@@ -4,26 +4,6 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Mantenimiento · Stange</title>
-<script>
-/* Comunicación con el servidor (Apps Script) por fetch, igual que la app de registro de viajes.
-   Mantiene la forma google.script.run.withSuccessHandler(...).withFailureHandler(...).funcion(args). */
-const API_URL = "https://script.google.com/macros/s/AKfycbz9-miexOJHOrgyTcb_KDHlUgGjPS2T0HFTzqXpswygxTczqLLJgrdCkPGmj49sFDQxNQ/exec";
-window.google = { script: { get run(){
-  let ok = () => {}, fail = () => {};
-  const p = new Proxy({}, { get(_, nombre){
-    if (nombre === "withSuccessHandler") return f => { ok = f; return p; };
-    if (nombre === "withFailureHandler") return f => { fail = f; return p; };
-    return (...args) => {
-      fetch(API_URL, { method: "POST", body: JSON.stringify({ accion: nombre, args }) })
-        .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
-        .then(j => { if (j && j.ok) ok(j.valor); else fail(new Error((j && j.error) || "Error del servidor")); })
-        .catch(e => fail(new Error(/Failed to fetch|NetworkError|Load failed/i.test(String(e && e.message)) ? "Sin conexión con el servidor" : (e && e.message) || "Error")));
-    };
-  } });
-  return p;
-} } };
-</script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 :root{--bg:#f4f6f9;--surface:#fff;--surface-2:#eaeef4;--ink:#14213d;--muted:#5b6b82;--line:#e1e6ee;--navy:#14315c;
 --red:#c62828;--red-bg:#fdecec;--amber:#a65f00;--amber-bg:#fff3dc;--green:#1b7a3d;--green-bg:#e4f5ea;--blue:#1f5fbf;--blue-bg:#e6effc}
@@ -110,13 +90,31 @@ dialog .btns{display:flex;gap:8px;justify-content:flex-end;margin-top:6px}
       <button class="btn sm" data-act="clave">Cambiar clave</button>
       <button class="btn sm" data-act="salir">Salir</button>
       <input type="file" id="file" accept="application/json" hidden>
-      <input type="file" id="xl" accept=".xlsx,.xls" hidden>
       <input type="file" id="um" accept="application/json,.json" hidden>
     </span>
   </footer>
 </main>
 <dialog id="dlg"></dialog>
 
+<script>
+/* Comunicación con el servidor (Apps Script) por fetch, igual que la app de registro de viajes.
+   Mantiene la forma google.script.run.withSuccessHandler(...).withFailureHandler(...).funcion(args). */
+const API_URL = "https://script.google.com/macros/s/AKfycbz9-miexOJHOrgyTcb_KDHlUgGjPS2T0HFTzqXpswygxTczqLLJgrdCkPGmj49sFDQxNQ/exec";
+window.google = { script: { get run(){
+  let ok = () => {}, fail = () => {};
+  const p = new Proxy({}, { get(_, nombre){
+    if (nombre === "withSuccessHandler") return f => { ok = f; return p; };
+    if (nombre === "withFailureHandler") return f => { fail = f; return p; };
+    return (...args) => {
+      fetch(API_URL, { method: "POST", body: JSON.stringify({ accion: nombre, args }) })
+        .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+        .then(j => { if (j && j.ok) ok(j.valor); else fail(new Error((j && j.error) || "Error del servidor")); })
+        .catch(e => fail(new Error(/Failed to fetch|NetworkError|Load failed/i.test(String(e && e.message)) ? "Sin conexión con el servidor" : (e && e.message) || "Error")));
+    };
+  } });
+  return p;
+} } };
+</script>
 <script>
 /* ================= Datos (guardados en este navegador) ================= */
 const KEY = "stange_mant_v1";
@@ -308,6 +306,7 @@ function pantallaLogin(msg){
   document.getElementById("q").style.display = "none";
   document.getElementById("base").style.display = "none";
   document.getElementById("foot").textContent = "";
+  document.querySelector("footer").style.display = "none";
   document.getElementById("view").innerHTML = `<div class="panel" style="max-width:360px;margin:30px auto"><h3>Ingresar</h3>
     <form id="lg"><label style="display:block;margin-bottom:10px;font-size:13px;color:var(--muted)">Usuario<input id="lgu" autocomplete="username" style="${estiloCampo}" required></label>
     <label style="display:block;margin-bottom:10px;font-size:13px;color:var(--muted)">Clave<input id="lgc" type="password" autocomplete="current-password" style="${estiloCampo}" required></label>
@@ -324,7 +323,7 @@ function cargar(){
   document.getElementById("view").innerHTML = '<div class="empty">Cargando datos…</div>';
   google.script.run
     .withSuccessHandler(r => { VERSION = r.version; EMAIL = r.nombre || r.usuario || ""; ROL = r.rol || "lector"; BASE_FIJA = (r.base && r.base !== "Todas") ? r.base : "";
-      D = r.data ? migrar(JSON.parse(r.data)) : EMPTY(); ESTADO = ""; document.getElementById("base").style.display = ""; render(); })
+      D = r.data ? migrar(JSON.parse(r.data)) : EMPTY(); ESTADO = ""; ESTADO_ANT = null; document.getElementById("base").style.display = ""; document.querySelector("footer").style.display = ""; render(); })
     .withFailureHandler(e => { if (/vencida/i.test(e && e.message)){ TOKEN = ""; pantallaLogin("Tu sesión venció. Ingresa de nuevo."); } else document.getElementById("view").innerHTML = '<div class="empty">No se pudieron cargar los datos: '+esc(e && e.message ? e.message : e)+'</div>'; })
     .cargarDatos(TOKEN);
 }
@@ -404,6 +403,7 @@ function prev(c){
 
 /* ================= Estado de la vista ================= */
 const TABS = [["resumen","Resumen"],["camiones","Camiones"],["ots","Órdenes de trabajo"],["prev","Preventivo"],["pautas","Pautas"],["fallas","Fallas"],["costos","Repuestos y costos"]];
+let ESTADO_ANT = null;
 let S = {tab:"resumen", q:"", base:"", f:{camiones:"todos", ots:"abiertas", prev:"todos"}};
 try{ const u = JSON.parse(localStorage.getItem(KEY+"_ui")||"{}"); if (TABS.some(x=>x[0]===u.tab)) S.tab = u.tab; if (typeof u.base === "string") S.base = u.base; }catch(e){}
 
@@ -545,6 +545,7 @@ function vResumen(){
   const cumpl = rec.length ? Math.round(cerr*1000/rec.length)/10 : null;
   const plan = rec.filter(o => o.tipo === "preventivo").length, noPlan = rec.length - plan;
   const pv = D.camiones.map(c => ({c, p:prev(c)})).filter(x => x.p.st === "vencido");
+  const pp = D.camiones.map(c => ({c, p:prev(c)})).filter(x => x.p.st === "proximo");
   const mes = h.slice(0,7);
   const gasto = D.gastos.filter(g => g.fecha.startsWith(mes)).reduce((a,g)=>a+(g.monto||0),0) + D.ots.filter(o => o.cerrada && o.cerrada.startsWith(mes)).reduce((a,o)=>a+(o.costo||0),0);
   const pr = PRIO.map(p => [p, abiertas.filter(o => o.prioridad === p).length]); const mx = Math.max(1, ...pr.map(x=>x[1]));
@@ -554,6 +555,7 @@ function vResumen(){
   const alertas = [
     ...nuevasObs.map(x => `<li>${tag("Observación nueva","blue")} <b>${esc(x.pat)}</b> · ${esc(x.desc)} ${x.opera==="No"?tag("No puede operar","red"):""} <button class="btn sm" data-act="go" data-tab="fallas">Ver</button></li>`),
     ...det.map(c => `<li>${tag(ESTADOS_CAM[c.estado][0], ESTADOS_CAM[c.estado][1])} <b>${esc(c.pat)}</b> ${esc(c.marca||"")}</li>`),
+    ...pp.map(x => `<li>${tag("Próximo a mantención","amber")} <b>${esc(x.c.pat)}</b> · faltan ${fkm(x.p.kmR)}</li>`),
     ...pv.map(x => `<li>${tag("Preventivo vencido","red")} <b>${esc(x.c.pat)}</b> · ${x.p.kmR!=null&&x.p.kmR<=0?`pasado por ${fkm(-x.p.kmR)}`:`vencido hace ${-x.p.dR} días`}</li>`),
     ...atras.map(o => `<li>${tag("OT atrasada","red")} <b>${esc(o.pat)}</b> · ${esc(o.desc)} <span style="color:var(--muted)">(comprometida ${fdate(o.vence)})</span></li>`),
   ];
@@ -562,6 +564,7 @@ function vResumen(){
     <button class="kpi" data-act="go" data-tab="ots" data-f="abiertas"><span class="l">OTs abiertas</span><span class="n">${abiertas.length}</span><span class="s">abiertas, en proceso o revisión</span></button>
     <button class="kpi ${atras.length?"red":""}" data-act="go" data-tab="ots" data-f="atrasadas"><span class="l">OTs atrasadas</span><span class="n">${atras.length}</span><span class="s">pasaron su fecha comprometida</span></button>
     <button class="kpi ${cumpl!=null&&cumpl>=90?"green":cumpl!=null?"amber":""}" data-act="go" data-tab="ots" data-f="todas"><span class="l">Cumplimiento 30 días</span><span class="n">${cumpl==null?"—":cumpl.toString().replace(".",",")+"%"}</span><span class="s">${cerr} de ${rec.length} OTs cerradas</span></button>
+    <button class="kpi ${pp.length?"amber":""}" data-act="go" data-tab="prev" data-f="proximo"><span class="l">Próximos a mantención</span><span class="n">${pp.length}</span><span class="s">a menos de 1.000 km</span></button>
     <button class="kpi ${pv.length?"red":""}" data-act="go" data-tab="prev" data-f="vencido"><span class="l">Preventivos vencidos</span><span class="n">${pv.length}</span><span class="s">por km o por fecha</span></button>
     <button class="kpi" data-act="go" data-tab="costos"><span class="l">Gasto del mes</span><span class="n" style="font-size:24px">${fclp(gasto)}</span><span class="s">OTs cerradas + gastos</span></button>
   </section>
@@ -585,7 +588,7 @@ function vCamiones(){
   const all = D.camiones;
   const f = S.f.camiones;
   const list = all.filter(c => (f==="todos" || (f==="detenidos" ? c.estado!=="operativo" : c.estado===f)) && match(c.pat, c.marca));
-  let h = `<div class="chips" style="justify-content:space-between"><span style="display:flex;gap:8px;flex-wrap:wrap">${[["todos","Todos",all.length],["operativo","Operativos",all.filter(c=>c.estado==="operativo").length],["detenidos","Detenidos o en taller",all.filter(c=>c.estado!=="operativo").length]].map(([k,l,n]) => `<button class="chip" data-act="chip" data-key="camiones" data-v="${k}" aria-pressed="${f===k}">${l} · ${n}</button>`).join("")}</span><span style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-act="imp-km">Importar km desde Excel</button><button class="btn pri" data-act="new-cam">+ Nuevo camión</button></span></div>`;
+  let h = `<div class="chips" style="justify-content:space-between"><span style="display:flex;gap:8px;flex-wrap:wrap">${[["todos","Todos",all.length],["operativo","Operativos",all.filter(c=>c.estado==="operativo").length],["detenidos","Detenidos o en taller",all.filter(c=>c.estado!=="operativo").length]].map(([k,l,n]) => `<button class="chip" data-act="chip" data-key="camiones" data-v="${k}" aria-pressed="${f===k}">${l} · ${n}</button>`).join("")}</span><span style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn pri" data-act="new-cam">+ Nuevo camión</button></span></div>`;
   if (!all.length) return h + emptyMsg("Sin camiones registrados.", demoBtns);
   if (!list.length) return h + emptyMsg("Ningún camión coincide.");
   return h + list.sort((a,b)=>a.pat.localeCompare(b.pat)).map(c => {
@@ -720,7 +723,7 @@ function asignarFracttal(){
   const faltan = new Set();
   D.pautas.forEach(p => (p.activos||[]).forEach(id => { if (!camion(id)) faltan.add(id); }));
   let crear = false;
-  if (faltan.size) crear = confirm(`${faltan.size} equipos de Fracttal no están en el tablero. ¿Crearlos (sin km hasta que importes el Excel)?`);
+  if (faltan.size) crear = confirm(`${faltan.size} equipos de Fracttal no están en el tablero. ¿Crearlos (sin km hasta que los ingreses)?`);
   let n = 0;
   D.pautas.forEach(p => (p.activos||[]).forEach(id => {
     let c = camion(id);
@@ -856,10 +859,40 @@ function render(){
     document.getElementById("q").style.display = S.tab === "resumen" ? "none" : "";
     document.getElementById("view").innerHTML = {resumen:vResumen, camiones:vCamiones, ots:vOTs, prev:vPrev, pautas:vPautas, fallas:vFallas, costos:vCostos}[S.tab]();
   } finally { D = full; }
+  revisarAlertasMant();
   document.getElementById("foot").textContent = `Datos compartidos (Google Drive) · ${full.camiones.length} camiones · ${full.ots.length} OTs${S.base ? ` · mostrando ${S.base==="-"?"equipos sin base":S.base}` : ""}${EMAIL?` · ${EMAIL} (${ROL})`:""}${ESTADO?` · ${ESTADO}`:""}`;
   aplicarRol();
 }
 document.getElementById("base").addEventListener("change", e => { S.base = e.target.value; guardarUI(); render(); });
+
+/* ===== Alerta de mantenimiento al ingresar km ===== */
+function snapshotMant(){
+  const m = {};
+  const visible = c => !S.base || (S.base === "-" ? !c.base : c.base === S.base);
+  D.camiones.forEach(c => { const p = prev(c), v = visible(c);
+    if (p.tareas.length) p.tareas.forEach(t => { m[c.pat+"|"+t.key] = {st:t.st, pat:c.pat, tarea:t.tarea.nombre, kmR:t.kmR, visible:v}; });
+    else m[c.pat+"|gen"] = {st:p.st, pat:c.pat, tarea:"Mantención (intervalo propio)", kmR:p.kmR, visible:v}; });
+  return m;
+}
+function revisarAlertasMant(){
+  const ahora = snapshotMant(), antes = ESTADO_ANT; ESTADO_ANT = ahora;
+  if (!antes) return;
+  const nuevas = Object.keys(ahora).filter(k => ahora[k].visible && (ahora[k].st === "vencido" || ahora[k].st === "proximo") && (!antes[k] || antes[k].st !== ahora[k].st));
+  if (nuevas.length) setTimeout(() => mostrarAlertasMant(nuevas.map(k => ahora[k])), 80);
+}
+function mostrarAlertasMant(lista){
+  const corto = n => String(n).replace(/^MANTENIMIENTO PROGRAMADO\s*/i,"Programado ").replace(/^MANTENCIÓN\s*/i,"");
+  const venc = lista.filter(x => x.st === "vencido"), prox = lista.filter(x => x.st === "proximo");
+  const fila = x => `<li><b>${esc(x.pat)}</b> · ${esc(corto(x.tarea))}${x.kmR==null?"":x.kmR<=0?` — pasada por ${fkm(-x.kmR)}`:` — faltan ${fkm(x.kmR)}`}</li>`;
+  const bloque = (arr, cls, txt) => arr.length ? `<div style="margin-top:10px"><span class="tag ${cls}">${txt} · ${arr.length}</span><ul style="margin:6px 0 0;padding-left:18px;font-size:14px;display:grid;gap:3px">${arr.slice(0,14).map(fila).join("")}${arr.length>14?`<li>… y ${arr.length-14} más</li>`:""}</ul></div>` : "";
+  dlg.style.width = "min(560px,96vw)";
+  dlg.innerHTML = `<form><h2>⚠ Equipos listos para mantenimiento</h2><div class="sub">Con los km recién ingresados, según las pautas, estos equipos ya llegaron o están por llegar a su mantención.</div>
+    ${bloque(venc,"red","Ya les toca")}${bloque(prox,"amber","Próximos (menos de 1.000 km)")}
+    <div class="btns" style="margin-top:14px"><button type="button" class="btn" data-x>Cerrar</button><button type="button" class="btn pri" data-y>Ver Preventivo</button></div></form>`;
+  dlg.querySelector("[data-x]").onclick = () => dlg.close();
+  dlg.querySelector("[data-y]").onclick = () => { dlg.close(); go("prev"); };
+  dlg.showModal();
+}
 
 /* ================= Eventos ================= */
 const byId = (arr, id) => arr.find(x => String(x.id) === String(id));
@@ -901,8 +934,6 @@ document.addEventListener("click", e => {
   else if (a === "falla-ot"){ const x = byId(D.fallas, id); const oid = nid();
     D.ots.push({id:oid, pat:x.pat, tipo:"correctivo", desc:"Falla: "+x.desc, prioridad:SEV.includes(x.severidad)?x.severidad:"Media", resp:"", estado:"abierta", creada:hoy(), vence:addDays(hoy(), x.opera==="No"?1:3), cerrada:null, costo:null});
     x.otId = oid; x.nueva = false; save(); render(); }
-  else if (a === "imp-km") document.getElementById("xl").click();
-  else if (a === "imp-apply") aplicarImport(b);
   else if (a === "clave") fClave();
   else if (a === "salir") salir();
   else if (a === "demo") demo();
@@ -913,7 +944,7 @@ document.getElementById("q").addEventListener("input", e => { S.q = e.target.val
 document.getElementById("file").addEventListener("change", e => {
   const f = e.target.files[0]; if (!f) return;
   const r = new FileReader();
-  r.onload = () => { try{ const s = JSON.parse(r.result); if (!s.camiones) throw 0; if (confirm("Esto reemplaza los datos actuales. ¿Continuar?")){ D = Object.assign(EMPTY(), s); save(); render(); } }catch(_){ alert("Archivo de respaldo no válido."); } };
+  r.onload = () => { try{ const s = JSON.parse(r.result); if (!s.camiones) throw 0; if (confirm("Esto reemplaza los datos actuales. ¿Continuar?")){ D = Object.assign(EMPTY(), s); ESTADO_ANT = null; save(); render(); } }catch(_){ alert("Archivo de respaldo no válido."); } };
   r.readAsText(f); e.target.value = "";
 });
 /* ===== Observaciones de conductores: se leen directo del servidor ===== */
@@ -983,64 +1014,7 @@ function aplicarUM(){
   const n = UM.ok.length; UM = null; save(); dlg.close(); render(); alert(n + " mantenciones registradas.");
 }
 
-/* ===== Importar km desde el Excel de la app de viajes (hojas "Viajes" y "Tractos") ===== */
-let PEND = null;
 const normId = v => { if (v == null || v === "") return null; const s = String(v).trim(); return /^\d+(\.0+)?$/.test(s) ? String(parseInt(s,10)) : s.toUpperCase(); };
-const toISO = v => v instanceof Date ? iso(v) : (typeof v === "string" && /^\d{4}-\d{2}-\d{2}/.test(v) ? v.slice(0,10) : null);
-document.getElementById("xl").addEventListener("change", e => {
-  const f = e.target.files[0]; e.target.value = ""; if (!f) return;
-  if (typeof XLSX === "undefined"){ alert("No se pudo cargar el lector de Excel (requiere internet la primera vez)."); return; }
-  const r = new FileReader();
-  r.onload = () => { try{ leerExcel(XLSX.read(r.result, {type:"array", cellDates:true})); }catch(err){ alert("No pude leer el archivo: "+err.message); } };
-  r.readAsArrayBuffer(f);
-});
-function hoja(wb, nombre){ const n = wb.SheetNames.find(x => x.trim().toLowerCase() === nombre); return n ? XLSX.utils.sheet_to_json(wb.Sheets[n], {defval:null}) : null; }
-function leerExcel(wb){
-  const tr = hoja(wb, "tractos"), vi = hoja(wb, "viajes");
-  if (!tr || !vi){ alert('El archivo debe tener las hojas "Viajes" y "Tractos".'); return; }
-  const m = new Map();
-  tr.forEach(r => { const id = normId(r["Tracto"]); if (!id || String(r["Activo"]||"").trim().toUpperCase() === "NO") return;
-    m.set(id, {id, base:r["Base"]||"", tipo:"Tractocamión", km:num(r["Km inicial"]), fecha:null, origen:"inicial"}); });
-  vi.forEach(r => { const id = normId(r["Tracto"]), km = num(r["Km"]), fh = toISO(r["Fecha y hora"]) ;
-    if (!id || km == null) return;
-    const cur = m.get(id) || {id, base:r["Base"]||"", km:null, fecha:null, origen:"inicial"};
-    if (!cur.fecha || (fh && fh >= cur.fecha) ){ cur.km = km; cur.fecha = fh; cur.origen = "viaje"; if (r["Base"]) cur.base = r["Base"]; }
-    m.set(id, cur); });
-  const baseEq = new Map();
-  (hoja(wb, "equipos") || []).forEach(r => { const id = normId(r["Equipo"]); if (id && r["Base"] && String(r["Activo"]||"").trim().toUpperCase() !== "NO") baseEq.set(id, String(r["Base"]).trim()); });
-  m.forEach((x, id) => { if (x.base && !baseEq.has(id)) baseEq.set(id, x.base); });
-  const conBase = [...baseEq].filter(([id, b]) => { const c = camion(id); return c && !c.base; });
-  const nuevos = [], upd = [], igual = [], bajan = [], sinKm = [];
-  m.forEach(x => {
-    if (x.km == null){ sinKm.push(x); return; }
-    const c = camion(x.id);
-    if (!c) nuevos.push(x);
-    else if (c.km == null || x.km > c.km) upd.push({...x, antes:c.km});
-    else if (x.km === c.km) igual.push(x);
-    else bajan.push({...x, antes:c.km});
-  });
-  PEND = {nuevos, upd, bajan, conBase};
-  const L = (arr, fn, max=12) => arr.length ? `<ul style="margin:4px 0 10px;padding-left:18px;font-size:13px">${arr.slice(0,max).map(fn).join("")}${arr.length>max?`<li>… y ${arr.length-max} más</li>`:""}</ul>` : "";
-  dlg.innerHTML = `<form><h2>Importar km</h2>
-    <div class="sub" style="margin-bottom:8px">${m.size} tractos leídos del Excel. El km es el del último viaje registrado de cada tracto (o el Km inicial si aún no tiene viajes).</div>
-    <div><b>${upd.length}</b> camiones con km nuevo${L(upd, x => `<li>${esc(x.id)}: ${fkm(x.antes)} → <b>${fkm(x.km)}</b></li>`)}</div>
-    <div><b>${nuevos.length}</b> camiones nuevos${L(nuevos, x => `<li>${esc(x.id)} ${x.base?`(${esc(x.base)}) `:""}· ${fkm(x.km)}</li>`)}</div>
-    ${bajan.length?`<div style="color:var(--red)"><b>${bajan.length}</b> con km menor al guardado (se omiten, revisa el Excel)${L(bajan, x => `<li>${esc(x.id)}: guardado ${fkm(x.antes)}, Excel ${fkm(x.km)}</li>`)}</div>`:""}
-    ${conBase.length?`<div><b>${conBase.length}</b> equipos que ya tenías reciben su base (${esc([...new Set(conBase.map(x => x[1]))].join(", "))})</div>`:""}
-    <div class="sub">${igual.length} sin cambios${sinKm.length?` · ${sinKm.length} sin km en el Excel`:""}</div>
-    ${nuevos.length?`<label class="chk" style="margin-top:10px"><input type="checkbox" id="impNuevos" checked>Agregar los camiones nuevos</label>`:""}
-    <div class="btns"><button type="button" class="btn" data-x>Cancelar</button><button type="button" class="btn pri" data-act="imp-apply"${upd.length||nuevos.length||conBase.length?"":" disabled"}>Aplicar</button></div></form>`;
-  dlg.querySelector("[data-x]").onclick = () => dlg.close(); dlg.showModal();
-}
-function aplicarImport(){
-  if (!PEND) return;
-  const hoyS = hoy(); let n = 0;
-  PEND.upd.forEach(x => { const c = camion(x.id); c.km = x.km; c.kmFecha = x.fecha || hoyS; if (x.base && !c.base) c.base = x.base; if (x.tipo && !c.tipo) c.tipo = x.tipo; n++; });
-  PEND.conBase.forEach(([id, b]) => { const c = camion(id); if (c && !c.base){ c.base = b; n++; } });
-  const chk = document.getElementById("impNuevos");
-  if (PEND.nuevos.length && (!chk || chk.checked)) PEND.nuevos.forEach(x => { D.camiones.push({pat:x.id, marca:"", base:x.base, tipo:x.tipo||"", km:x.km, kmFecha:x.fecha || hoyS, estado:"operativo", intKm:10000, intDias:90}); n++; });
-  PEND = null; save(); dlg.close(); render();
-}
 
 function exportar(){
   const a = document.createElement("a");
