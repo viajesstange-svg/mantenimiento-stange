@@ -387,6 +387,10 @@ const PRIO = ["Muy alta","Alta","Media","Baja"];
 const PRIO_TAG = {"Muy alta":"red","Alta":"amber","Media":"blue","Baja":"gray"};
 const SEV = ["Muy alta","Alta","Media","Baja"];
 
+/* Una OT puede incluir varios equipos (o.equipos), cada uno con su pauta; las OT de un solo equipo usan o.pat / o.keys */
+const otPats = o => o.equipos ? o.equipos.map(e => e.pat) : [o.pat];
+const otIncluye = (o, p) => otPats(o).includes(p);
+const otKeys = (o, p) => o.equipos ? ((o.equipos.find(e => e.pat === p) || {}).keys || []) : (o.pat === p ? (o.keys || []) : []);
 const otAbierta = o => o.estado !== "cerrada";
 const otAtrasada = o => otAbierta(o) && o.vence && o.vence < hoy();
 
@@ -430,7 +434,7 @@ function prev(c){
 /* ================= Estado de la vista ================= */
 const TABS = [["resumen","Resumen"],["camiones","Camiones"],["ots","Órdenes de trabajo"],["prev","Preventivo"],["pautas","Pautas"],["fallas","Fallas"],["costos","Repuestos y costos"]];
 let ESTADO_ANT = null, USUARIO = "";
-let S = {tab:"resumen", q:"", base:"", f:{camiones:"todos", ots:"abiertas", prev:"todos"}};
+let S = {sel:new Set(), tab:"resumen", q:"", base:"", f:{camiones:"todos", ots:"abiertas", prev:"todos"}};
 try{ const u = JSON.parse(localStorage.getItem(KEY+"_ui")||"{}"); if (TABS.some(x=>x[0]===u.tab)) S.tab = u.tab; if (typeof u.base === "string") S.base = u.base; }catch(e){}
 
 function guardarUI(){ try{ localStorage.setItem(KEY+"_ui", JSON.stringify({tab:S.tab, base:S.base})); }catch(e){} }
@@ -631,7 +635,7 @@ function vCamiones(){
     orden.push(c); if (q && list.includes(q) && !orden.includes(q)) orden.push(q); });
   return h + orden.map(c => {
     const p = prev(c), st = ESTADOS_CAM[c.estado]||ESTADOS_CAM.operativo;
-    const ots = D.ots.filter(o => o.pat === c.pat), ab = ots.filter(otAbierta).length;
+    const ots = D.ots.filter(o => otIncluye(o, c.pat)), ab = ots.filter(otAbierta).length;
     return `<div class="row ${c.estado==="detenido"?"flag":c.estado==="taller"?"warn":""}">
       <div><span class="plate">${esc(c.pat)}</span></div>
       <div class="what"><div class="d">${esc(c.marca||"Sin modelo")} ${tag(st[0], st[1])}${p.st==="vencido"?" "+tag("Preventivo vencido","red"):p.st==="proximo"?" "+tag("Preventivo próximo","amber"):""}</div>
@@ -644,14 +648,14 @@ function vOTs(){
   const f = S.f.ots;
   const cnt = {abiertas:D.ots.filter(otAbierta).length, atrasadas:D.ots.filter(otAtrasada).length, cerradas:D.ots.filter(o=>o.estado==="cerrada").length, todas:D.ots.length};
   const pass = o => f==="todas" || (f==="abiertas"&&otAbierta(o)) || (f==="atrasadas"&&otAtrasada(o)) || (f==="cerradas"&&o.estado==="cerrada");
-  const list = D.ots.filter(o => pass(o) && match(o.pat, o.desc, o.resp));
+  const list = D.ots.filter(o => pass(o) && match(otPats(o).join(" "), o.desc, o.resp));
   const pi = p => PRIO.indexOf(p);
   let h = `<div class="chips" style="justify-content:space-between"><span style="display:flex;gap:8px;flex-wrap:wrap">${[["abiertas","Abiertas"],["atrasadas","Atrasadas"],["cerradas","Cerradas"],["todas","Todas"]].map(([k,l]) => `<button class="chip" data-act="chip" data-key="ots" data-v="${k}" aria-pressed="${f===k}">${l} · ${cnt[k]}</button>`).join("")}</span><button class="btn pri" data-act="new-ot">+ Nueva OT</button></div>`;
   if (!list.length) return h + emptyMsg(D.ots.length ? "Ninguna orden coincide con el filtro." : "Sin órdenes de trabajo.", D.camiones.length?"":demoBtns);
   return h + list.sort((a,b) => (otAbierta(b)-otAbierta(a)) || pi(a.prioridad)-pi(b.prioridad) || (a.vence||"9").localeCompare(b.vence||"9")).map(o => {
     const st = ESTADOS_OT[o.estado], at = otAtrasada(o);
     return `<div class="row ${at?"flag":""}">
-      <div><span class="plate">${esc(o.pat)}</span><div class="sub">OT #${o.id}</div></div>
+      <div>${otPats(o).map(p => `<div style="margin-bottom:4px"><span class="plate">${esc(p)}</span></div>`).join("")}<div class="sub">OT #${o.id}</div></div>
       <div class="what"><div class="d">${esc(o.desc)}</div>
         <div class="m">${tag(st[0],st[1])} ${tag(o.tipo==="preventivo"?"Preventiva":"Correctiva", o.tipo==="preventivo"?"green":"red")} ${tag(o.prioridad, PRIO_TAG[o.prioridad]||"gray")}${at?" "+tag("Atrasada","red"):""}
           ${o.resp?`<span>${esc(o.resp)}</span>`:""}<span>Creada ${fdate(o.creada)}</span>${o.vence?`<span>Comprometida ${fdate(o.vence)}</span>`:""}${o.cerrada?`<span>Cerrada ${fdate(o.cerrada)}</span>`:""}${o.costo!=null?`<span>${fclp(o.costo)}</span>`:""}${o.items?`<span>Checklist ${o.items.filter(i=>i.tipo!=="texto"&&i.res).length}/${o.items.filter(i=>i.tipo!=="texto").length}${o.items.some(i=>i.res==="fallo")?` · ${o.items.filter(i=>i.res==="fallo").length} con falla`:""}</span>`:""}</div></div>
@@ -668,7 +672,8 @@ function vPrev(){
   const h = `<div class="chips">${[["todos","Todos",all.length],["vencido","Vencidos",n("vencido")],["proximo","Próximos",n("proximo")],["ok","Al día",n("ok")]].map(([k,l,c]) => `<button class="chip" data-act="chip" data-key="prev" data-v="${k}" aria-pressed="${f===k}">${l} · ${c}</button>`).join("")}</div>`;
   if (!all.length) return h + emptyMsg("Agrega camiones con su última mantención e intervalo para ver el preventivo.", demoBtns);
   if (!list.length) return h + emptyMsg("Ningún camión coincide.");
-  return h + list.sort((a,b) => ord[a.p.st]-ord[b.p.st] || (a.p.kmR??1e9)-(b.p.kmR??1e9)).map(({c,p}) => {
+  const barra = S.sel.size ? `<div class="chips" style="justify-content:space-between;margin-top:10px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--surface-2)"><b>${S.sel.size} equipo${S.sel.size===1?"":"s"} seleccionado${S.sel.size===1?"":"s"}: ${esc([...S.sel].join(" + "))}</b><span style="display:flex;gap:8px"><button class="btn pri" data-act="gen-sel">Generar una sola OT</button><button class="btn" data-act="sel-clear">Limpiar</button></span></div>` : `<div class="sub" style="margin-top:8px">Marca con el check los equipos que irán juntos (por ejemplo un tracto y su semi) y genera una sola OT.</div>`;
+  return h + barra + list.sort((a,b) => ord[a.p.st]-ord[b.p.st] || (a.p.kmR??1e9)-(b.p.kmR??1e9)).map(({c,p}) => {
     const lbl = {vencido:["Vencido","red"],proximo:["Próximo","amber"],ok:["Al día","green"],sin:["Sin plan","gray"]}[p.st];
     const due = p.tareas.filter(t => t.st === "vencido" || t.st === "proximo");
     const trq = !esTractoC(c) ? parDe(c) : null, arr = !!(trq && esTractoC(trq) && ["vencido","proximo"].includes(prev(trq).st));
@@ -676,7 +681,7 @@ function vPrev(){
     const corto = n => n.replace(/^MANTENIMIENTO PROGRAMADO\s*/i,"Programado ").replace(/^MANTENCIÓN\s*/i,"");
     const lineas = p.tareas.filter(t => t.st !== "sinreg").sort((a,b) => a.kmR - b.kmR).slice(0,4).map(t => `<span>${tag(t.st==="vencido"?"Vencida":t.st==="proximo"?"Próxima":"Al día", t.st==="vencido"?"red":t.st==="proximo"?"amber":"green")} ${esc(corto(t.tarea.nombre))}: ${t.kmR<=0?`pasada por ${fkm(-t.kmR)}`:`faltan ${fkm(t.kmR)}`}</span>`).join("");
     return `<div class="row ${p.st==="vencido"?"flag":p.st==="proximo"?"warn":""}">
-      <div><span class="plate">${esc(c.pat)}</span></div>
+      <div><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" data-act="sel" data-id="${esc(c.pat)}"${S.sel.has(c.pat)?" checked":""} style="width:20px;height:20px"><span class="plate">${esc(c.pat)}</span></label></div>
       <div class="what"><div class="d">${tag(lbl[0],lbl[1])} ${esc(c.marca||c.tipo||"")}${arr?" "+tag("Se arrastra con el tracto "+trq.pat,"amber"):""}</div>
         <div class="m">${p.tareas.length ? lineas : `${p.kmR!=null?`<span>${p.kmR<=0?`Pasado por ${fkm(-p.kmR)}`:`Faltan ${fkm(p.kmR)}`} (próx. ${fkm(p.nk)})</span>`:""}${p.dR!=null?`<span>${p.dR<0?`Vencido hace ${-p.dR} días`:`Faltan ${p.dR} días`} (${fdate(p.nd)})</span>`:""}`}${p.st==="sin"?`<span>${(c.pautaIds||[]).length?"Registra la última mantención de cada tarea (botón de la derecha)":"Asigna una pauta en Pautas o define el intervalo en Editar"}</span>`:""}${sinreg&&p.tareas.length?`<span>${sinreg} tarea${sinreg===1?"":"s"} sin registro</span>`:""}<span>Km actual ${fkm(c.km)}</span>${c.par?`<span><b>${esTractoC(c)?"Semi":"Tracto"} ${esc(c.par)}</b> <small>(aparte, con su propia pauta y OT)</small></span>`:""}</div></div>
       <div class="acts">${due.length?`<button class="btn sm pri" data-act="gen-ot" data-id="${esc(c.pat)}">Generar OT${due.length>1?` (${due.length} tareas)`:""}</button>`:arr?`<button class="btn sm pri" data-act="gen-ot-arr" data-id="${esc(c.pat)}">Generar OT (con el tracto ${esc(trq.pat)})</button>`:""}<button class="btn sm" data-act="hecha" data-id="${esc(c.pat)}">Registrar mantención hecha</button></div></div>`;
@@ -783,40 +788,60 @@ function itemsPara(t){
   const n = Math.max(1, Math.round(t.nk / t.tarea.cadaKm)), nn = ((n - 1) % maxIt) + 1;
   return its.filter(i => !i.it || i.it.includes(nn));
 }
-/** Crea la OT preventiva de un equipo con SU pauta. porTracto: el semi se arrastra aunque aun no le toque por su propio km. */
-function crearOT(c, porTracto){
+/** Tareas de un equipo para la OT, con SU pauta (vencidas/proximas; si no hay, la siguiente de su plan). */
+function parteOT(c){
   const pv = prev(c);
   let due = pv.tareas.filter(t => t.st === "vencido" || t.st === "proximo");
-  if (!due.length && porTracto){
+  if (!due.length){
     const r = pv.tareas.filter(t => t.st !== "sinreg").sort((x,y) => x.kmR - y.kmR)[0] || pv.tareas.find(t => t.primaria) || pv.tareas[0];
     if (r) due = [r];
-    else { alert(`${c.pat} no tiene una pauta asignada: asígnala en Pautas para generar su OT.`); return false; }
   }
-  if (!due.length) return false;
+  if (!due.length) return {c, error:"no tiene una pauta asignada (asígnala en Pautas)"};
   const keys = due.map(t => t.key);
-  const ya = D.ots.find(o => o.pat === c.pat && otAbierta(o) && (o.keys||[]).some(k => keys.includes(k)));
-  if (ya){ alert(`Ya hay una OT abierta con alguna de estas tareas para ${c.pat} (OT #${ya.id}).`); return false; }
+  const ya = D.ots.find(o => otAbierta(o) && otKeys(o, c.pat).some(k => keys.includes(k)));
+  if (ya) return {c, error:`ya está en la OT abierta #${ya.id}`};
   const items = [];
   due.forEach(t => { const g = grupoDe(t.plan, t.tarea);
     const its = itemsPara(t);
-    if (its.length) its.forEach(i => items.push({grupo:g, sis:i.sis, desc:i.desc, tipo:i.tipo, res:null}));
-    else items.push({grupo:g, sis:"GENERAL", desc:"Realizar "+t.tarea.nombre+" (checklist aún no cargado en el plan)", tipo:"sino", res:null}); });
-  const q = parDe(c);
-  const id = nid();
-  D.ots.push({id, pat:c.pat, tipo:"preventivo", desc:due.map(t => t.tarea.nombre).join(" + "), prioridad:due.some(t => t.st==="vencido") ? "Alta" : "Media", resp:"", estado:"abierta", creada:hoy(), vence:addDays(hoy(),3), cerrada:null, costo:null, keys, kmOT:c.km, notas: porTracto && q ? `Arrastrada por la mantención del tracto ${q.pat}` : "", items});
-  return true;
+    if (its.length) its.forEach(i => items.push({eq:c.pat, grupo:g, sis:i.sis, desc:i.desc, tipo:i.tipo, res:null}));
+    else items.push({eq:c.pat, grupo:g, sis:"GENERAL", desc:"Realizar "+t.tarea.nombre+" (checklist aún no cargado en el plan)", tipo:"sino", res:null}); });
+  return {c, due, keys, items};
 }
-function genOT(c){
-  if (!crearOT(c, false)) return;
-  const q = parDe(c);
-  if (q && esTractoC(c) && !esTractoC(q) && confirm(`Se creó la OT del tracto ${c.pat}.\n\n¿Crear también la OT de su semirremolque ${q.pat}, con su propia pauta?`)) crearOT(q, true);
-  save(); S.f.ots = "abiertas"; go("ots");
+/** Diálogo: junta los equipos en UNA sola OT (cada uno con su pauta) y asigna mecánico responsable. */
+function generarOTs(pats){
+  const partes = pats.map(camion).filter(Boolean).map(parteOT);
+  if (!partes.some(p => !p.error)){ alert(partes.map(p => `${p.c.pat}: ${p.error}`).join("\n") || "Nada que generar."); return; }
+  const mecs = [...new Set(D.ots.map(o => (o.resp||"").trim()).filter(Boolean))].sort();
+  const nom = p => p.due.map(t => t.tarea.nombre).join(" + ");
+  dlg.style.width = "min(600px,96vw)";
+  dlg.innerHTML = `<form><h2>Generar orden de trabajo</h2>
+    <div class="sub" style="margin-bottom:8px">Una sola OT con cada equipo por separado, cada uno con su propia pauta y checklist.</div>
+    <div style="display:grid;gap:6px;margin-bottom:12px">${partes.map((p,i) => p.error
+      ? `<div style="font-size:14px;color:var(--muted)">✕ <b>${esc(p.c.pat)}</b> · no incluido: ${esc(p.error)}</div>`
+      : `<label class="chk" style="margin:0"><input type="checkbox" name="e${i}" checked><span><b>${esc(p.c.pat)}</b> <small>${esc(p.c.tipo||"")}</small> · ${esc(nom(p))}</span></label>`).join("")}</div>
+    <label>Mecánico responsable<input name="resp" list="mecs" placeholder="Nombre del mecánico" autocomplete="off" required></label><datalist id="mecs">${mecs.map(m => `<option value="${esc(m)}">`).join("")}</datalist>
+    <label>Fecha comprometida<input name="vence" type="date" value="${addDays(hoy(),3)}"></label>
+    <div class="btns"><button type="button" class="btn" data-x>Cancelar</button><button class="btn pri">Generar OT</button></div></form>`;
+  const fm = dlg.querySelector("form");
+  fm.querySelector("[data-x]").onclick = () => dlg.close();
+  fm.onsubmit = e => {
+    e.preventDefault();
+    const ch = partes.filter((p,i) => !p.error && fm.elements["e"+i].checked);
+    if (!ch.length){ alert("Marca al menos un equipo."); return; }
+    const venc = ch.some(p => p.due.some(t => t.st === "vencido")), id = nid();
+    const ot = {id, pat:ch[0].c.pat, tipo:"preventivo", desc: ch.length === 1 ? nom(ch[0]) : ch.map(p => `${p.c.pat}: ${nom(p)}`).join(" · "),
+      prioridad: venc ? "Alta" : "Media", resp: fm.elements.resp.value.trim(), estado:"abierta", creada:hoy(), vence: fm.elements.vence.value || addDays(hoy(),3), cerrada:null, costo:null, notas:"", items: ch.flatMap(p => p.items)};
+    if (ch.length === 1){ ot.keys = ch[0].keys; ot.kmOT = ch[0].c.km; }
+    else ot.equipos = ch.map(p => ({pat:p.c.pat, keys:p.keys, kmOT:p.c.km, desc:nom(p)}));
+    D.ots.push(ot); S.sel.clear(); save(); dlg.close(); S.f.ots = "abiertas"; go("ots");
+  };
+  dlg.showModal();
 }
 function fChecklist(o){
   dlg.style.width = "min(760px,96vw)";
-  dlg.innerHTML = `<form><h2>Checklist · OT #${o.id} · ${esc(o.pat)}</h2><div class="sub" style="margin-bottom:10px">${esc(o.desc)}${o.kmOT!=null?` · km al generar ${fkm(o.kmOT)}`:""}</div>
+  dlg.innerHTML = `<form><h2>Checklist · OT #${o.id} · ${esc(otPats(o).join(" + "))}</h2><div class="sub" style="margin-bottom:10px">${esc(o.desc)}${o.kmOT!=null&&!o.equipos?` · km al generar ${fkm(o.kmOT)}`:""}${o.resp?` · Responsable: ${esc(o.resp)}`:""}</div>
     <div style="max-height:60vh;overflow:auto;border:1px solid var(--line);border-radius:10px">
-    ${o.items.map((it,i) => `${it.grupo && (i===0 || o.items[i-1].grupo !== it.grupo) ? `<div class="sec" style="margin:0;padding:8px 12px;background:var(--surface-2)">${esc(it.grupo)}</div>` : ""}<div style="padding:9px 12px;border-bottom:1px solid var(--line);display:grid;gap:6px"><div><b style="font-size:12px;color:var(--muted)">${esc(it.sis)}</b><div style="font-size:14px">${esc(it.desc)}</div></div>
+    ${o.items.map((it,i) => `${o.equipos && it.eq && (i===0 || o.items[i-1].eq !== it.eq) ? `<div class="sec" style="margin:0;padding:10px 12px;background:var(--navy,#16325c);color:#fff">Equipo ${esc(it.eq)}${(camion(it.eq)||{}).tipo?" · "+esc(camion(it.eq).tipo):""}</div>` : ""}${it.grupo && (i===0 || o.items[i-1].grupo !== it.grupo || (o.equipos && o.items[i-1].eq !== it.eq)) ? `<div class="sec" style="margin:0;padding:8px 12px;background:var(--surface-2)">${esc(it.grupo)}</div>` : ""}<div style="padding:9px 12px;border-bottom:1px solid var(--line);display:grid;gap:6px"><div><b style="font-size:12px;color:var(--muted)">${esc(it.sis)}</b><div style="font-size:14px">${esc(it.desc)}</div></div>
       ${it.tipo==="texto" ? `<input name="r${i}" value="${esc(it.res||"")}" placeholder="Observación" style="width:100%">` : `<div style="display:flex;gap:14px;flex-wrap:wrap">${RES(it.tipo).map(([v,l]) => `<label class="chk" style="margin:0"><input type="radio" name="r${i}" value="${v}"${it.res===v?" checked":""}>${l}</label>`).join("")}</div>`}</div>`).join("")}
     </div>
     <label style="margin-top:10px">Observación de la unidad<textarea name="notas" rows="3">${esc(o.notas||"")}</textarea></label>
@@ -833,7 +858,7 @@ function fChecklist(o){
       const fallos = o.items.filter(i => i.res === "fallo");
       o.estado = "cerrada"; o.cerrada = hoy(); alCerrar(o);
       if (fallos.length && confirm(`${fallos.length} ítems quedaron como "Falló". ¿Registrarlos como fallas para seguimiento?`))
-        fallos.forEach(i => D.fallas.push({id:nid(), fecha:hoy(), pat:o.pat, desc:`${i.sis}: ${i.desc}`, severidad:"Media", reportado:"Checklist OT #"+o.id, solucion:""}));
+        fallos.forEach(i => D.fallas.push({id:nid(), fecha:hoy(), pat:i.eq||o.pat, desc:`${i.sis}: ${i.desc}`, severidad:"Media", reportado:"Checklist OT #"+o.id, solucion:""}));
     }
     save(); dlg.close(); render();
   });
@@ -842,11 +867,13 @@ function fChecklist(o){
 dlg.addEventListener("close", () => { dlg.style.width = ""; });
 /** Al cerrar una OT con tareas de plan, el camión queda con esas mantenciones al día */
 function alCerrar(o){
-  const c = camion(o.pat); if (!c || !(o.keys||[]).length) return;
-  c.mant = c.mant || {};
-  const km = c.km != null ? c.km : o.kmOT;
-  o.keys.forEach(k => { c.mant[k] = {fecha:o.cerrada || hoy(), km:km || 0}; });
-  if (c.estado === "taller") c.estado = "operativo";
+  (o.equipos || [{pat:o.pat, keys:o.keys, kmOT:o.kmOT}]).forEach(e => {
+    const c = camion(e.pat); if (!c || !(e.keys||[]).length) return;
+    c.mant = c.mant || {};
+    const km = c.km != null ? c.km : e.kmOT;
+    e.keys.forEach(k => { c.mant[k] = {fecha:o.cerrada || hoy(), km:km || 0}; });
+    if (c.estado === "taller") c.estado = "operativo";
+  });
 }
 
 function vFallas(){
@@ -885,7 +912,7 @@ function vCostos(){
 function vHist(pat){
   const c = camion(pat);
   const ev = [
-    ...D.ots.filter(o => o.pat === pat).map(o => ({f:o.creada, t:`OT #${o.id} ${o.tipo==="preventivo"?"preventiva":"correctiva"} · ${o.desc} (${ESTADOS_OT[o.estado][0]})`})),
+    ...D.ots.filter(o => otIncluye(o, pat)).map(o => ({f:o.creada, t:`OT #${o.id} ${o.tipo==="preventivo"?"preventiva":"correctiva"} · ${o.desc} (${ESTADOS_OT[o.estado][0]})`})),
     ...D.fallas.filter(x => x.pat === pat).map(x => ({f:x.fecha, t:`Falla (${x.severidad}) · ${x.desc}`})),
     ...D.gastos.filter(g => g.pat === pat).map(g => ({f:g.fecha, t:`Gasto ${fclp(g.monto)} · ${g.concepto}`})),
   ].sort((a,b) => b.f.localeCompare(a.f));
@@ -904,7 +931,7 @@ function render(){
   if (S.base){
     const ok = c => S.base === "-" ? !c.base : c.base === S.base;
     const cams = full.camiones.filter(ok), pats = new Set(cams.map(c => c.pat));
-    D = {...full, camiones:cams, ots:full.ots.filter(o => pats.has(o.pat)), fallas:full.fallas.filter(f => pats.has(f.pat)), gastos:full.gastos.filter(g => pats.has(g.pat))};
+    D = {...full, camiones:cams, ots:full.ots.filter(o => otPats(o).some(p => pats.has(p))), fallas:full.fallas.filter(f => pats.has(f.pat)), gastos:full.gastos.filter(g => pats.has(g.pat))};
   }
   try{
     const ab = D.ots.filter(otAbierta).length;
@@ -978,8 +1005,10 @@ document.addEventListener("click", e => {
     if (o.items && o.items.some(i => i.tipo !== "texto" && !i.res) && !confirm("Esta OT tiene ítems del checklist sin responder. ¿Cerrar igual?")) return;
     o.estado = "cerrada"; o.cerrada = hoy(); alCerrar(o); save(); render(); }
   else if (a === "checklist") fChecklist(byId(D.ots, id));
-  else if (a === "gen-ot") genOT(camion(id));
-  else if (a === "gen-ot-arr"){ if (crearOT(camion(id), true)){ save(); S.f.ots = "abiertas"; go("ots"); } }
+  else if (a === "gen-ot" || a === "gen-ot-arr"){ const c = camion(id), q = parDe(c); generarOTs(q && esTractoC(c) ? [id, q.pat] : q && esTractoC(q) && a === "gen-ot-arr" ? [q.pat, id] : [id]); }
+  else if (a === "sel"){ const c = camion(id); if (b.checked){ S.sel.add(id); const q = parDe(c); if (q) S.sel.add(q.pat); } else S.sel.delete(id); render(); }
+  else if (a === "gen-sel") generarOTs([...S.sel]);
+  else if (a === "sel-clear"){ S.sel.clear(); render(); }
   else if (a === "new-pauta") fPlan();
   else if (a === "edit-pauta") fPlan(D.pautas.find(p => p.id === id));
   else if (a === "ft-asignar") asignarFracttal();
