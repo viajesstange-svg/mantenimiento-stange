@@ -440,7 +440,7 @@ function prev(c){
 }
 
 /* ================= Estado de la vista ================= */
-const TABS = [["resumen","Resumen"],["camiones","Camiones"],["tareas","Detalle de tareas"],["solicitudes","Solicitudes"],["pautas","Pautas"],["fallas","Fallas"],["costos","Repuestos y costos"]];
+const TABS = [["resumen","Resumen"],["camiones","Camiones"],["tareas","Detalle de tareas"],["solicitudes","Solicitudes"],["pautas","Pautas"]];
 let ESTADO_ANT = null, USUARIO = "";
 let S = {sel:new Set(), tab:"resumen", q:"", base:"", f:{camiones:"todos", tareas:"todo", ots:"abiertas", prev:"pendientes"}};
 try{ const u = JSON.parse(localStorage.getItem(KEY+"_ui")||"{}"); if (TABS.some(x=>x[0]===u.tab)) S.tab = u.tab; if (typeof u.base === "string") S.base = u.base; }catch(e){}
@@ -612,7 +612,6 @@ function vResumen(){
     <button class="kpi ${cumpl!=null&&cumpl>=90?"green":cumpl!=null?"amber":""}" data-act="go" data-tab="ots" data-f="todas"><span class="l">Cumplimiento 30 días</span><span class="n">${cumpl==null?"—":cumpl.toString().replace(".",",")+"%"}</span><span class="s">${cerr} de ${rec.length} OTs cerradas</span></button>
     <button class="kpi ${pp.length?"amber":""}" data-act="go" data-tab="prev" data-f="proximo"><span class="l">Próximos a mantención</span><span class="n">${pp.length}</span><span class="s">a menos de 1.000 km</span></button>
     <button class="kpi ${pv.length?"red":""}" data-act="go" data-tab="prev" data-f="vencido"><span class="l">Preventivos vencidos</span><span class="n">${pv.length}</span><span class="s">por km o por fecha</span></button>
-    <button class="kpi" data-act="go" data-tab="costos"><span class="l">Gasto del mes</span><span class="n" style="font-size:24px">${fclp(gasto)}</span><span class="s">OTs cerradas + gastos</span></button>
   </section>
   <div class="grid2">
     <div class="panel"><h3>Planificado vs no planificado (30 días)</h3>
@@ -924,10 +923,7 @@ function fChecklist(o){
     if (b.dataset.ok === "1"){
       const pend = o.items.filter(i => i.tipo !== "texto" && !i.res).length;
       if (pend && !confirm(`Faltan ${pend} ítems sin responder. ¿Cerrar la OT igual?`)) return;
-      const fallos = o.items.filter(i => i.res === "fallo");
       o.estado = "cerrada"; o.cerrada = hoy(); alCerrar(o);
-      if (fallos.length && confirm(`${fallos.length} ítems quedaron como "Falló". ¿Registrarlos como fallas para seguimiento?`))
-        fallos.forEach(i => D.fallas.push({id:nid(), fecha:hoy(), pat:i.eq||o.pat, desc:`${i.sis}: ${i.desc}`, severidad:"Media", reportado:"Checklist OT #"+o.id, solucion:""}));
     }
     save(); dlg.close(); render();
   });
