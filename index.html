@@ -323,7 +323,7 @@ function cargar(){
   document.getElementById("view").innerHTML = '<div class="empty">Cargando datos…</div>';
   google.script.run
     .withSuccessHandler(r => { VERSION = r.version; EMAIL = r.nombre || r.usuario || ""; ROL = r.rol || "lector"; BASE_FIJA = (r.base && r.base !== "Todas") ? r.base : "";
-      D = r.data ? migrar(JSON.parse(r.data)) : EMPTY(); ESTADO = ""; ESTADO_ANT = null; document.getElementById("base").style.display = ""; document.querySelector("footer").style.display = ""; render(); })
+      D = r.data ? migrar(JSON.parse(r.data)) : EMPTY(); ESTADO = ""; USUARIO = r.usuario || ""; ESTADO_ANT = estadoGuardado(); document.getElementById("base").style.display = ""; document.querySelector("footer").style.display = ""; render(); })
     .withFailureHandler(e => { if (/vencida/i.test(e && e.message)){ TOKEN = ""; pantallaLogin("Tu sesión venció. Ingresa de nuevo."); } else document.getElementById("view").innerHTML = '<div class="empty">No se pudieron cargar los datos: '+esc(e && e.message ? e.message : e)+'</div>'; })
     .cargarDatos(TOKEN);
 }
@@ -403,7 +403,7 @@ function prev(c){
 
 /* ================= Estado de la vista ================= */
 const TABS = [["resumen","Resumen"],["camiones","Camiones"],["ots","Órdenes de trabajo"],["prev","Preventivo"],["pautas","Pautas"],["fallas","Fallas"],["costos","Repuestos y costos"]];
-let ESTADO_ANT = null;
+let ESTADO_ANT = null, USUARIO = "";
 let S = {tab:"resumen", q:"", base:"", f:{camiones:"todos", ots:"abiertas", prev:"todos"}};
 try{ const u = JSON.parse(localStorage.getItem(KEY+"_ui")||"{}"); if (TABS.some(x=>x[0]===u.tab)) S.tab = u.tab; if (typeof u.base === "string") S.base = u.base; }catch(e){}
 
@@ -589,6 +589,7 @@ function vCamiones(){
   const f = S.f.camiones;
   const list = all.filter(c => (f==="todos" || (f==="detenidos" ? c.estado!=="operativo" : c.estado===f)) && match(c.pat, c.marca));
   let h = `<div class="chips" style="justify-content:space-between"><span style="display:flex;gap:8px;flex-wrap:wrap">${[["todos","Todos",all.length],["operativo","Operativos",all.filter(c=>c.estado==="operativo").length],["detenidos","Detenidos o en taller",all.filter(c=>c.estado!=="operativo").length]].map(([k,l,n]) => `<button class="chip" data-act="chip" data-key="camiones" data-v="${k}" aria-pressed="${f===k}">${l} · ${n}</button>`).join("")}</span><span style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn pri" data-act="new-cam">+ Nuevo camión</button></span></div>`;
+  if (D.kmAuto) h = `<div class="sub" style="margin-bottom:8px">Km actualizados automáticamente desde la planilla de viajes el ${fdate(D.kmAuto.fecha)} · ${D.kmAuto.actualizados} equipos${D.kmAuto.nuevos?` · ${D.kmAuto.nuevos} equipos nuevos`:""}</div>` + h;
   if (!all.length) return h + emptyMsg("Sin camiones registrados.", demoBtns);
   if (!list.length) return h + emptyMsg("Ningún camión coincide.");
   return h + list.sort((a,b)=>a.pat.localeCompare(b.pat)).map(c => {
@@ -874,8 +875,14 @@ function snapshotMant(){
     else m[c.pat+"|gen"] = {st:p.st, pat:c.pat, tarea:"Mantención (intervalo propio)", kmR:p.kmR, visible:v}; });
   return m;
 }
+function estadoGuardado(){
+  try{ const s = JSON.parse(localStorage.getItem("mant_estado_"+(USUARIO||"local")) || "null"); if (!s) return null; const o = {}; Object.keys(s).forEach(k => { o[k] = {st:s[k]}; }); return o; }catch(e){ return null; }
+}
+function guardarEstado(m){
+  try{ const s = {}; Object.keys(m).forEach(k => { s[k] = m[k].st; }); localStorage.setItem("mant_estado_"+(USUARIO||"local"), JSON.stringify(s)); }catch(e){}
+}
 function revisarAlertasMant(){
-  const ahora = snapshotMant(), antes = ESTADO_ANT; ESTADO_ANT = ahora;
+  const ahora = snapshotMant(), antes = ESTADO_ANT; ESTADO_ANT = ahora; guardarEstado(ahora);
   if (!antes) return;
   const nuevas = Object.keys(ahora).filter(k => ahora[k].visible && (ahora[k].st === "vencido" || ahora[k].st === "proximo") && (!antes[k] || antes[k].st !== ahora[k].st));
   if (nuevas.length) setTimeout(() => mostrarAlertasMant(nuevas.map(k => ahora[k])), 80);
@@ -886,7 +893,7 @@ function mostrarAlertasMant(lista){
   const fila = x => `<li><b>${esc(x.pat)}</b> · ${esc(corto(x.tarea))}${x.kmR==null?"":x.kmR<=0?` — pasada por ${fkm(-x.kmR)}`:` — faltan ${fkm(x.kmR)}`}</li>`;
   const bloque = (arr, cls, txt) => arr.length ? `<div style="margin-top:10px"><span class="tag ${cls}">${txt} · ${arr.length}</span><ul style="margin:6px 0 0;padding-left:18px;font-size:14px;display:grid;gap:3px">${arr.slice(0,14).map(fila).join("")}${arr.length>14?`<li>… y ${arr.length-14} más</li>`:""}</ul></div>` : "";
   dlg.style.width = "min(560px,96vw)";
-  dlg.innerHTML = `<form><h2>⚠ Equipos listos para mantenimiento</h2><div class="sub">Con los km recién ingresados, según las pautas, estos equipos ya llegaron o están por llegar a su mantención.</div>
+  dlg.innerHTML = `<form><h2>⚠ Equipos listos para mantenimiento</h2><div class="sub">Con los km actualizados, según las pautas, estos equipos ya llegaron o están por llegar a su mantención (cambios desde tu última visita).</div>
     ${bloque(venc,"red","Ya les toca")}${bloque(prox,"amber","Próximos (menos de 1.000 km)")}
     <div class="btns" style="margin-top:14px"><button type="button" class="btn" data-x>Cerrar</button><button type="button" class="btn pri" data-y>Ver Preventivo</button></div></form>`;
   dlg.querySelector("[data-x]").onclick = () => dlg.close();
