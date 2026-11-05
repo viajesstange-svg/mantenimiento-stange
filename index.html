@@ -67,6 +67,16 @@ dialog label{display:block;font-size:13px;color:var(--muted);margin-bottom:10px}
 dialog input,dialog select,dialog textarea{display:block;width:100%;margin-top:3px;border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:8px 10px}
 dialog label.chk{display:flex;gap:8px;align-items:center;color:var(--ink)}dialog label.chk input{width:auto;margin:0}
 dialog .btns{display:flex;gap:8px;justify-content:flex-end;margin-top:6px}
+.kan{display:grid;grid-template-columns:repeat(4,minmax(290px,1fr));gap:12px;align-items:start;overflow-x:auto;padding-bottom:8px}
+.kcol{background:var(--surface-2);border-radius:14px;padding:10px;min-width:0}
+.kh{display:flex;align-items:center;gap:8px;font-weight:700;margin:2px 4px 10px;border-left:4px solid var(--c,#999);padding-left:8px}
+.kh .n{margin-left:auto;font-size:13px;color:var(--muted);font-weight:600}
+.kb{display:grid;gap:8px;max-height:68vh;overflow:auto}
+.kc{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px;display:grid;gap:6px}
+.kc.flag{border-left:4px solid var(--red)}.kc.warn{border-left:4px solid var(--amber)}
+.kc .ks{font-size:13px;color:var(--muted);display:flex;gap:4px 10px;flex-wrap:wrap}
+.kc .kact{display:flex;gap:6px;flex-wrap:wrap;margin-top:2px}
+@media(max-width:900px){.kan{grid-template-columns:repeat(4,86vw)}}
 </style>
 </head>
 <body>
@@ -430,13 +440,14 @@ function prev(c){
 }
 
 /* ================= Estado de la vista ================= */
-const TABS = [["resumen","Resumen"],["camiones","Camiones"],["ots","Órdenes de trabajo"],["prev","Preventivo"],["pautas","Pautas"],["fallas","Fallas"],["costos","Repuestos y costos"]];
+const TABS = [["resumen","Resumen"],["camiones","Camiones"],["tareas","Detalle de tareas"],["solicitudes","Solicitudes"],["pautas","Pautas"],["fallas","Fallas"],["costos","Repuestos y costos"]];
 let ESTADO_ANT = null, USUARIO = "";
-let S = {sel:new Set(), tab:"resumen", q:"", base:"", f:{camiones:"todos", ots:"abiertas", prev:"pendientes"}};
+let S = {sel:new Set(), tab:"resumen", q:"", base:"", f:{camiones:"todos", tareas:"todo", ots:"abiertas", prev:"pendientes"}};
 try{ const u = JSON.parse(localStorage.getItem(KEY+"_ui")||"{}"); if (TABS.some(x=>x[0]===u.tab)) S.tab = u.tab; if (typeof u.base === "string") S.base = u.base; }catch(e){}
 
 function guardarUI(){ try{ localStorage.setItem(KEY+"_ui", JSON.stringify({tab:S.tab, base:S.base})); }catch(e){} }
 function go(tab, filtro){
+  if (tab === "ots" || tab === "prev"){ filtro = ["atrasadas","proximo","vencido"].includes(filtro) ? filtro : "todo"; tab = "tareas"; }
   S.tab = tab; if (filtro && S.f[tab] !== undefined) S.f[tab] = filtro;
   guardarUI();
   render();
@@ -588,7 +599,7 @@ function vResumen(){
 
   const nuevasObs = D.fallas.filter(x => x.nueva && !x.otId);
   const alertas = [
-    ...nuevasObs.map(x => `<li>${tag("Observación nueva","blue")} <b>${esc(x.pat)}</b> · ${esc(x.desc)} ${x.opera==="No"?tag("No puede operar","red"):""} <button class="btn sm" data-act="go" data-tab="fallas">Ver</button></li>`),
+    ...nuevasObs.map(x => `<li>${tag("Observación nueva","blue")} <b>${esc(x.pat)}</b> · ${esc(x.desc)} ${x.opera==="No"?tag("No puede operar","red"):""} <button class="btn sm" data-act="go" data-tab="solicitudes">Ver</button></li>`),
     ...det.map(c => `<li>${tag(ESTADOS_CAM[c.estado][0], ESTADOS_CAM[c.estado][1])} <b>${esc(c.pat)}</b> ${esc(c.marca||"")}</li>`),
     ...pp.map(x => `<li>${tag("Próximo a mantención","amber")} <b>${esc(x.c.pat)}</b> · faltan ${fkm(x.p.kmR)}</li>`),
     ...pv.map(x => `<li>${tag("Preventivo vencido","red")} <b>${esc(x.c.pat)}</b> · ${x.p.kmR!=null&&x.p.kmR<=0?`pasado por ${fkm(-x.p.kmR)}`:`vencido hace ${-x.p.dR} días`}</li>`),
@@ -640,6 +651,61 @@ function vCamiones(){
         <div class="m"><span>${fkm(c.km)}${c.kmFecha?` <small>(al ${fdate(c.kmFecha)})</small>`:""}</span>${c.base?`<span>${esc(c.base)}</span>`:""}${c.par?`<span><b>${esTractoC(c)?"Semi":"Tracto"} ${esc(c.par)}</b> <small>(equipo aparte, con su propia pauta y OT)</small></span>`:""}<span>Última mantención ${fdate(c.ultFecha)}${c.ultKm!=null?` (${fkm(c.ultKm)})`:""}</span><span>Próxima ${p.nk!=null?fkm(p.nk):""}${p.nk!=null&&p.nd?" o ":""}${p.nd?fdate(p.nd):""}${p.nk==null&&!p.nd?"—":""}</span><span>${ab} OT abierta${ab===1?"":"s"} · ${ots.length} en historial</span>${(c.pautaIds||[]).length?`<span>Pautas: ${esc((c.pautaIds||[]).map(id => (pautaPorId(id)||{nombre:id}).nombre.replace(/^FLOTA\s*-?\s*(PLAN|PAUTA)\s+(DE\s+)?MANTEN[A-Z]+\s+/i,"")).join(" + "))}</span>`:""}</div></div>
       <div class="acts"><button class="btn sm" data-act="hist" data-id="${esc(c.pat)}">Historial</button><button class="btn sm" data-act="edit-cam" data-id="${esc(c.pat)}">Editar</button><button class="btn sm danger" data-act="del-cam" data-id="${esc(c.pat)}">Eliminar</button></div></div>`;
   }).join("");
+}
+
+/* ===== Detalle de tareas: tablero por columnas (pendientes, en proceso, en revisión, finalizadas) ===== */
+function vTareas(){
+  const f = S.f.tareas, q = S.q.trim();
+  const all = D.camiones.map(c => ({c, p:prev(c)}));
+  const cumple = st => f === "vencido" ? st === "vencido" : f === "proximo" ? st === "proximo" : (st === "vencido" || st === "proximo");
+  const stPar = c => { const x = parDe(c); return x ? prev(x).st : null; };
+  const lista = all.filter(x => (cumple(x.p.st) || (stPar(x.c) && cumple(stPar(x.c)))) && (match(x.c.pat, x.c.marca) || (q && x.c.par && match(x.c.par))));
+  const ord = {vencido:0, proximo:1, ok:2, sin:3};
+  const ordenado = lista.sort((a,b) => ord[a.p.st]-ord[b.p.st] || (a.p.kmR??1e9)-(b.p.kmR??1e9)), vistos = new Set(), grupos = [];
+  ordenado.forEach(x => { if (vistos.has(x.c.pat)) return; const qd = parDe(x.c), y = qd && ordenado.find(z => z.c === qd);
+    const par = y && !vistos.has(y.c.pat) ? (esTractoC(x.c) ? [x, y] : [y, x]) : [x]; par.forEach(z => { vistos.add(z.c.pat); grupos.push(z); }); });
+  const corto = n => n.replace(/^MANTENIMIENTO PROGRAMADO\s*/i,"Programado ").replace(/^MANTENCIÓN\s*/i,"");
+  const lbl = {vencido:["Vencido","red"],proximo:["Próximo","amber"],ok:["Al día","green"],sin:["Sin plan","gray"]};
+  const cardPrev = ({c,p}) => {
+    const trq = parDe(c), due = p.tareas.filter(t => t.st === "vencido" || t.st === "proximo");
+    const arr = !!(trq && !due.length && ["vencido","proximo"].includes(prev(trq).st));
+    const lineas = p.tareas.filter(t => t.st !== "sinreg").sort((a,b) => a.kmR - b.kmR).slice(0,2).map(t => `<div>${esc(corto(t.tarea.nombre))}: ${t.kmR<=0?`pasada por ${fkm(-t.kmR)}`:`faltan ${fkm(t.kmR)}`}</div>`).join("")
+      || (p.kmR != null ? `<div>${p.kmR<=0?`Pasado por ${fkm(-p.kmR)}`:`Faltan ${fkm(p.kmR)}`}</div>` : "");
+    return `<div class="kc ${p.st==="vencido"?"flag":p.st==="proximo"?"warn":""}">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><input type="checkbox" data-act="sel" data-id="${esc(c.pat)}"${S.sel.has(c.pat)?" checked":""} style="width:18px;height:18px"><span class="plate">${esc(c.pat)}</span><small>${esc(c.tipo||"")}</small>${tag(lbl[p.st][0],lbl[p.st][1])}</div>
+      ${arr?`<div>${tag("Se arrastra con el "+(esTractoC(trq)?"tracto ":"semi ")+trq.pat,"amber")}</div>`:""}
+      <div class="ks" style="display:grid">${lineas}</div>
+      <div class="ks"><span>Km actual ${fkm(c.km)}</span>${trq?`<span><b>${esTractoC(c)?"Semi":"Tracto"} ${esc(trq.pat)}</b></span>`:""}</div>
+      <div class="kact">${due.length||arr?`<button class="btn sm pri" data-act="gen-ot" data-id="${esc(c.pat)}">Generar OT</button>`:""}<button class="btn sm" data-act="hecha" data-id="${esc(c.pat)}">Registrar mantención hecha</button></div></div>`;
+  };
+  const btn = (act, id, txt, cls, v) => `<button class="btn sm ${cls||""}" data-act="${act}" data-id="${id}"${v?` data-v="${v}"`:""}>${txt}</button>`;
+  const cardOT = o => {
+    const at = otAtrasada(o), st = ESTADOS_OT[o.estado], its = o.items || [], pr = its.filter(i => i.tipo !== "texto");
+    const mover = o.estado === "abierta" ? btn("ot-estado", o.id, "Iniciar", "", "proceso") : o.estado === "proceso" ? btn("ot-estado", o.id, "A revisión", "", "revision") : o.estado === "revision" ? btn("ot-estado", o.id, "Volver a proceso", "", "proceso") : "";
+    const acts = otAbierta(o) ? `${mover}${o.items?btn("checklist", o.id, "Checklist"):""}${btn("close-ot", o.id, "Cerrar")}${btn("edit-ot", o.id, "Editar")}${btn("del-ot", o.id, "Eliminar", "danger")}` : "";
+    return `<div class="kc ${at?"flag":""}">
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><b style="color:var(--blue)">OT #${o.id}</b>${tag(st[0],st[1])}${tag(o.tipo==="preventivo"?"Preventiva":"Correctiva", o.tipo==="preventivo"?"green":"red")}${tag(o.prioridad, PRIO_TAG[o.prioridad]||"gray")}${at?tag("Atrasada","red"):""}</div>
+      <div>${otPats(o).map(p => `<span class="plate" style="margin-right:4px">${esc(p)}</span>`).join("")}</div>
+      <div style="font-size:14px">${esc(o.desc)}</div>
+      <div class="ks">${o.resp?`<span>👤 ${esc(o.resp)}</span>`:`<span>Sin responsable</span>`}${o.vence&&otAbierta(o)?`<span>Comprometida ${fdate(o.vence)}</span>`:""}${o.cerrada?`<span>Cerrada ${fdate(o.cerrada)}</span>`:""}${o.costo!=null?`<span>${fclp(o.costo)}</span>`:""}${pr.length?`<span>Checklist ${pr.filter(i=>i.res).length}/${pr.length}${its.some(i=>i.res==="fallo")?` · ${its.filter(i=>i.res==="fallo").length} con falla`:""}</span>`:""}</div>
+      ${acts?`<div class="kact">${acts}</div>`:""}</div>`;
+  };
+  const okOT = o => match(otPats(o).join(" "), o.desc, o.resp) && (f !== "atrasadas" || otAtrasada(o));
+  const ots = D.ots.filter(okOT);
+  const enProc = ots.filter(o => o.estado === "abierta" || o.estado === "proceso").sort((a,b) => (a.vence||"9").localeCompare(b.vence||"9"));
+  const enRev = ots.filter(o => o.estado === "revision").sort((a,b) => (a.vence||"9").localeCompare(b.vence||"9"));
+  const fin = ots.filter(o => o.estado === "cerrada").sort((a,b) => (b.cerrada||"").localeCompare(a.cerrada||""));
+  const col = (titulo, color, n, body, nota) => `<div class="kcol"><div class="kh" style="--c:${color}">${titulo}<span class="n">${n}</span></div><div class="kb">${body || `<div class="sub" style="padding:8px">Sin elementos</div>`}${nota||""}</div></div>`;
+  const barra = S.sel.size ? `<div class="chips" style="justify-content:space-between;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--surface-2)"><b>${S.sel.size} equipo${S.sel.size===1?"":"s"} seleccionado${S.sel.size===1?"":"s"}: ${esc([...S.sel].join(" + "))}</b><span style="display:flex;gap:8px"><button class="btn pri" data-act="gen-sel">Generar una sola OT</button><button class="btn" data-act="sel-clear">Limpiar</button></span></div>` : "";
+  const h = `<div class="chips" style="justify-content:space-between"><span style="display:flex;gap:8px;flex-wrap:wrap">${[["todo","Todo"],["atrasadas","OTs atrasadas"],["vencido","Vencidos"],["proximo","Próximos"]].map(([k,l]) => `<button class="chip" data-act="chip" data-key="tareas" data-v="${k}" aria-pressed="${f===k}">${l}</button>`).join("")}</span><button class="btn pri" data-act="new-ot">+ Nueva OT</button></div>`
+    + (S.sel.size ? barra : `<div class="sub" style="margin-bottom:8px">Marca con el check los equipos que irán juntos (por ejemplo un tracto y su semi) y genera una sola OT.</div>`);
+  if (!all.length && !D.ots.length) return h + emptyMsg("Agrega camiones para ver sus tareas.", demoBtns);
+  return h + `<div class="kan">
+    ${col("Tareas pendientes","#9aa5b8",grupos.length, grupos.map(cardPrev).join(""))}
+    ${col("OTs en proceso","#e08a00",enProc.length, enProc.map(cardOT).join(""))}
+    ${col("OTs en revisión","#1f5fbf",enRev.length, enRev.map(cardOT).join(""))}
+    ${col("OTs finalizadas","#1b7a3d",fin.length, fin.slice(0,15).map(cardOT).join(""), fin.length>15?`<div class="sub" style="padding:6px">Se muestran las últimas 15 de ${fin.length}.</div>`:"")}
+  </div>`;
 }
 
 function vOTs(){
@@ -879,11 +945,13 @@ function alCerrar(o){
   });
 }
 
-function vFallas(){
-  const list = D.fallas.filter(x => match(x.pat, x.desc, x.reportado, x.solucion)).sort((a,b) => b.fecha.localeCompare(a.fecha));
+function vFallas(soli){
+  const list = D.fallas.filter(x => !!x.ext === !!soli && match(x.pat, x.desc, x.reportado, x.solucion)).sort((a,b) => b.fecha.localeCompare(a.fecha));
   const cfg = syncCfg();
-  const h = `<div class="chips" style="justify-content:space-between"><span class="sub">Reportes de falla por camión y su solución${cfg.ultimo?` · última sincronización ${esc(cfg.ultimo)}`:""}</span><span style="display:flex;gap:8px;flex-wrap:wrap">${cfg.url?`<button class="btn" data-act="sync">Sincronizar app conductores</button>`:""}<button class="btn pri" data-act="new-falla">+ Reportar falla</button></span></div>`;
-  if (!list.length) return h + emptyMsg(D.fallas.length ? "Ninguna falla coincide." : "Sin fallas reportadas.");
+  const h = soli
+    ? `<div class="chips" style="justify-content:space-between"><span class="sub">Solicitudes que suben los conductores desde su app${cfg.ultimo?` · última sincronización ${esc(cfg.ultimo)}`:""}</span><span style="display:flex;gap:8px;flex-wrap:wrap">${cfg.url?`<button class="btn pri" data-act="sync">Sincronizar solicitudes</button>`:""}</span></div>`
+    : `<div class="chips" style="justify-content:space-between"><span class="sub">Fallas registradas por el equipo y su solución</span><button class="btn pri" data-act="new-falla">+ Reportar falla</button></div>`;
+  if (!list.length) return h + emptyMsg(soli ? "Aún no hay solicitudes de conductores. Cuando suban una desde su app aparecerán aquí." : D.fallas.some(x => !x.ext) ? "Ninguna falla coincide." : "Sin fallas reportadas.");
   return h + list.map(x => `<div class="row ${x.solucion?"":x.opera==="No"?"flag":"warn"}">
     <div><span class="plate">${esc(x.pat)}</span><div class="sub">${fdate(x.fecha)}</div></div>
     <div class="what"><div class="d">${x.nueva?tag("Nueva","blue")+" ":""}${esc(x.desc)}</div>
@@ -938,9 +1006,9 @@ function render(){
   }
   try{
     const ab = D.ots.filter(otAbierta).length;
-    document.getElementById("tabs").innerHTML = TABS.map(([k,l]) => `<button class="tab" role="tab" data-act="tab" data-tab="${k}" aria-selected="${S.tab===k}">${l}${k==="ots"&&ab?` <span class="c">${ab}</span>`:""}</button>`).join("");
+    document.getElementById("tabs").innerHTML = TABS.map(([k,l]) => `<button class="tab" role="tab" data-act="tab" data-tab="${k}" aria-selected="${S.tab===k}">${l}${k==="tareas"&&ab?` <span class="c">${ab}</span>`:""}${k==="solicitudes"&&D.fallas.some(x=>x.ext&&x.nueva)?` <span class="c">${D.fallas.filter(x=>x.ext&&x.nueva).length}</span>`:""}</button>`).join("");
     document.getElementById("q").style.display = S.tab === "resumen" ? "none" : "";
-    document.getElementById("view").innerHTML = {resumen:vResumen, camiones:vCamiones, ots:vOTs, prev:vPrev, pautas:vPautas, fallas:vFallas, costos:vCostos}[S.tab]();
+    document.getElementById("view").innerHTML = {resumen:vResumen, camiones:vCamiones, tareas:vTareas, solicitudes:() => vFallas(true), pautas:vPautas, fallas:() => vFallas(false), costos:vCostos}[S.tab]();
   } finally { D = full; }
   revisarAlertasMant();
   document.getElementById("foot").textContent = `Datos compartidos (Google Drive) · ${full.camiones.length} camiones · ${full.ots.length} OTs${S.base ? ` · mostrando ${S.base==="-"?"equipos sin base":S.base}` : ""}${EMAIL?` · ${EMAIL} (${ROL})`:""}${ESTADO?` · ${ESTADO}`:""}`;
@@ -981,9 +1049,9 @@ function mostrarAlertasMant(lista){
   dlg.style.width = "min(560px,96vw)";
   dlg.innerHTML = `<form><h2>⚠ Equipos listos para mantenimiento</h2><div class="sub">Con los km actualizados, según las pautas, estos equipos ya llegaron o están por llegar a su mantención (cambios desde tu última visita).</div>
     ${bloque(venc,"red","Ya les toca")}${bloque(prox,"amber","Próximos (menos de 1.000 km)")}
-    <div class="btns" style="margin-top:14px"><button type="button" class="btn" data-x>Cerrar</button><button type="button" class="btn pri" data-y>Ver Preventivo</button></div></form>`;
+    <div class="btns" style="margin-top:14px"><button type="button" class="btn" data-x>Cerrar</button><button type="button" class="btn pri" data-y>Ver tareas pendientes</button></div></form>`;
   dlg.querySelector("[data-x]").onclick = () => dlg.close();
-  dlg.querySelector("[data-y]").onclick = () => { dlg.close(); go("prev"); };
+  dlg.querySelector("[data-y]").onclick = () => { dlg.close(); go("tareas"); };
   dlg.showModal();
 }
 
@@ -1010,6 +1078,7 @@ document.addEventListener("click", e => {
   else if (a === "checklist"){ const o = byId(D.ots, id); if (o && otAbierta(o)) fChecklist(o); }
   else if (a === "gen-ot" || a === "gen-ot-arr"){ const c = camion(id), q = parDe(c); generarOTs(q ? (esTractoC(c) ? [id, q.pat] : [q.pat, id]) : [id]); }
   else if (a === "sel"){ const c = camion(id); if (b.checked){ S.sel.add(id); const q = parDe(c); if (q) S.sel.add(q.pat); } else S.sel.delete(id); render(); }
+  else if (a === "ot-estado"){ const o = byId(D.ots, id); if (o && otAbierta(o)){ o.estado = b.dataset.v; save(); render(); } }
   else if (a === "gen-sel") generarOTs([...S.sel]);
   else if (a === "sel-clear"){ S.sel.clear(); render(); }
   else if (a === "new-pauta") fPlan();
@@ -1056,7 +1125,7 @@ function sincronizar(){
         const cam = camion(pat); if (cam && it.km != null && it.km > (cam.km||0)){ cam.km = it.km; cam.kmFecha = (it.fecha||"").slice(0,10) || hoy(); }
         if (cam && it.opera === "No" && cam.estado === "operativo") cam.estado = "detenido";
         n++; });
-      save(); S.tab = "fallas"; render();
+      save(); S.tab = "solicitudes"; render();
       alert(n ? `${n} observaciones nuevas de conductores.` : "Sin observaciones nuevas.");
     })
     .withFailureHandler(e => alert("No pude leer las observaciones: "+(e && e.message ? e.message : e)))
