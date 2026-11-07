@@ -392,6 +392,7 @@ function setPar(c, nuevo){
   c.par = "";
 }
 
+const BASES_FLOTA = ["Puerto Montt","Chacabuco","Punta Arenas","Via Limpia"];
 const TIPOS_EQ = ["","Tractocamión","Semirremolque","Camión","Estanque","Camioneta"];
 const ESTADOS_CAM = {operativo:["Operativo","green"], taller:["En taller","amber"], detenido:["Detenido","red"]};
 const ESTADOS_OT = {abierta:["Abierta","blue"], proceso:["En proceso","amber"], revision:["En revisión","gray"], cerrada:["Cerrada","green"]};
@@ -491,7 +492,7 @@ function fCamion(c){
   form(isNew ? "Nuevo camión" : "Editar "+c.pat, [
     {k:"pat", l:"Patente", req:1},
     {k:"marca", l:"Marca / modelo"},
-    {k:"base", l:"Base", t:"sel", opts:["","Puerto Montt","Chacabuco","Punta Arenas"]},
+    {k:"base", l:"Base", t:"sel", opts:["", ...new Set([...BASES_FLOTA, ...D.camiones.map(k => k.base).filter(Boolean)])]},
     {k:"tipo", l:"Tipo de equipo", t:"sel", opts:TIPOS_EQ},
     {k:"par", l:"Pareja fija (tracto ↔ semirremolque)", t:"sel", opts:["", ...D.camiones.filter(k => !c || k.pat !== c.pat).map(k => k.pat).sort()]},
     {k:"km", l:"Kilometraje actual", t:"number"},
@@ -1023,7 +1024,7 @@ function render(){
   if (BASE_FIJA) S.base = BASE_FIJA;
   const full = D;
   if (S.base === "-") S.base = "";
-  const bases = [...new Set(["Puerto Montt","Chacabuco","Punta Arenas", ...full.camiones.map(c => c.base).filter(Boolean)])];
+  const bases = [...new Set([...BASES_FLOTA, ...full.camiones.map(c => c.base).filter(Boolean)])];
   const sel = document.getElementById("base");
   sel.innerHTML = `<option value="">Todas las bases</option>` + bases.map(b => `<option value="${esc(b)}"${S.base===b?" selected":""}>${esc(b)}</option>`).join("");
   if (BASE_FIJA){ sel.innerHTML = `<option value="${esc(BASE_FIJA)}" selected>${esc(BASE_FIJA)}</option>`; sel.disabled = true; }
@@ -1174,9 +1175,10 @@ document.getElementById("um").addEventListener("change", e => {
 });
 function leerUM(j){
   if (!j || !Array.isArray(j.items)) throw new Error("falta la lista items");
-  const ok = [], sinEq = [], sinPlan = [], viejos = [];
+  const ok = [], sinEq = [], sinPlan = [], viejos = [], modelos = [];
   j.items.forEach(it => {
     const id = normId(it.equipo); let c = camion(id), esNuevo = false;
+    if (it.modelo !== undefined && !it.tarea){ if (!c) sinEq.push(id); else if (!c.marca) modelos.push({id, modelo:it.modelo}); return; }   // marca y modelo de cada equipo
     if (!c){ c = {pat:id, pautaIds:[], mant:{}}; esNuevo = true; }
     const nt = normTarea(it.tarea);
     const buscar = ids => { for (const pid of ids){ const p = pautaPorId(pid); if (!p) continue; const t = p.tareas.find(x => normTarea(x.nombre) === nt); if (t) return {p, t}; } return null; };
@@ -1189,15 +1191,16 @@ function leerUM(j){
     if (prevR && prevR.fecha >= it.fecha){ viejos.push(id); return; }
     ok.push({id, key, plan:hit.p, tarea:hit.t, fecha:it.fecha, km:it.km, actual:it.medidorActual, nuevoPlan, esNuevo});
   });
-  UM = {ok, leido:j.leido};
+  UM = {ok, modelos, leido:j.leido};
   const L = (arr, fn, max=10) => arr.length ? `<ul style="margin:4px 0 10px;padding-left:18px;font-size:13px">${arr.slice(0,max).map(fn).join("")}${arr.length>max?`<li>… y ${arr.length-max} más</li>`:""}</ul>` : "";
   dlg.innerHTML = `<form><h2>Importar últimas mantenciones</h2>
     <div class="sub" style="margin-bottom:8px">${j.items.length} registros del archivo${j.leido?` (leído el ${esc(j.leido)})`:""}. El km es el del odómetro cuando Fracttal activó la tarea, una aproximación de la última mantención.</div>
-    <div><b>${ok.length}</b> mantenciones por registrar${L(ok, x => `<li>${esc(x.id)}: ${esc(x.tarea.nombre)} · ${x.quitar?"se retira la lectura errónea":fkm(x.km)+" · "+fdate(x.fecha)}${x.nuevoPlan?" · se asigna el plan":""}${x.esNuevo?" · equipo nuevo":""}</li>`)}</div>
+    ${modelos.length?`<div><b>${modelos.length}</b> equipos sin modelo recibirán su marca y modelo${L(modelos, x => `<li>${esc(x.id)}: ${esc(x.modelo)}</li>`, 6)}</div>`:""}
+    ${ok.length||!modelos.length?`<div><b>${ok.length}</b> mantenciones por registrar${L(ok, x => `<li>${esc(x.id)}: ${esc(x.tarea.nombre)} · ${x.quitar?"se retira la lectura errónea":fkm(x.km)+" · "+fdate(x.fecha)}${x.nuevoPlan?" · se asigna el plan":""}${x.esNuevo?" · equipo nuevo":""}</li>`)}</div>`:""}
     ${sinEq.length?`<div class="sub"><b>${sinEq.length}</b> equipos del archivo no están en el tablero: ${esc([...new Set(sinEq)].slice(0,12).join(", "))}${sinEq.length>12?"…":""}</div>`:""}
     ${sinPlan.length?`<div class="sub"><b>${sinPlan.length}</b> sin plan que coincida (asígnales su plan en Pautas): ${esc(sinPlan.slice(0,6).join("; "))}${sinPlan.length>6?"…":""}</div>`:""}
     ${viejos.length?`<div class="sub">${viejos.length} ya tenían una mantención igual o más reciente y no se cambian.</div>`:""}
-    <div class="btns"><button type="button" class="btn" data-x>Cancelar</button><button type="button" class="btn pri" data-act="um-apply"${ok.length?"":" disabled"}>Aplicar</button></div></form>`;
+    <div class="btns"><button type="button" class="btn" data-x>Cancelar</button><button type="button" class="btn pri" data-act="um-apply"${ok.length||modelos.length?"":" disabled"}>Aplicar</button></div></form>`;
   dlg.querySelector("[data-x]").onclick = () => dlg.close(); dlg.showModal();
 }
 function aplicarUM(){
@@ -1209,7 +1212,8 @@ function aplicarUM(){
     if (x.nuevoPlan && !(c.pautaIds||[]).includes(x.plan.id)){ c.pautaIds = c.pautaIds || []; c.pautaIds.push(x.plan.id); }
     c.mant[x.key] = {fecha:x.fecha, km:x.km};
     if (x.actual && x.actual > (c.km || 0)){ c.km = x.actual; c.kmFecha = UM.leido || hoy(); } });
-  const n = UM.ok.length; UM = null; save(); dlg.close(); render(); alert(n + " mantenciones registradas.");
+  const nm = (UM.modelos || []).filter(x => { const c = camion(x.id); if (c && !c.marca){ c.marca = x.modelo; return true; } return false; }).length;
+  const n = UM.ok.length; UM = null; save(); dlg.close(); render(); alert((n ? n + " mantenciones registradas. " : "") + (nm ? nm + " equipos con su modelo." : ""));
 }
 
 const normId = v => { if (v == null || v === "") return null; const s = String(v).trim(); return /^\d+(\.0+)?$/.test(s) ? String(parseInt(s,10)) : s.toUpperCase(); };
