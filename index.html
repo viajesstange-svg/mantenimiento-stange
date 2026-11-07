@@ -278,6 +278,35 @@ function aplicarParejas(s){
     if (b.par === undefined) b.par = a.pat;
   });
 }
+/* Camiones con estanque (15 m3): el estanque es un equipo aparte, con su plan, su km y su última mantención (de Fracttal, 2026-11-07) */
+const ESTANQUES = [
+  {camion:"8876", marca:"QYS Ovalado 15m3", plan:"f-est15", km:270123, fecha:"2026-11-01", ult:{fecha:"2026-08-23", km:258451}},
+  {camion:"4570", marca:"Echevarria Eche-2-99", plan:"f-est15", km:212082, fecha:"2025-11-30", ult:{fecha:"2025-09-22", km:205500}},
+  {camion:"4358", marca:"Ressco", plan:"f-est15", km:185225, fecha:"2026-11-01", ult:{fecha:"2026-10-09", km:183017}},
+  {camion:"4571", marca:"Ressco", plan:"f-est15", km:381397, fecha:"2025-11-23", ult:{fecha:"2025-10-19", km:375257}},
+  {camion:"4061", marca:"Henal Tanks spa Ovalado 15m3", plan:"f-est20", km:199607, fecha:"2026-11-01", ult:{fecha:"2026-08-16", km:189396}},
+  {camion:"8975", marca:"QYS Ovalado 15m3", plan:"f-est20", km:266356, fecha:"2026-10-04", ult:{fecha:"2026-06-21", km:248879}},
+  {camion:"8887", marca:"QYS Ovalado 15m3", plan:"f-est20", km:257268, fecha:"2026-10-18", ult:{fecha:"2026-03-29", km:233771}},
+  {camion:"8846", marca:"QYS Ovalado 15m3", plan:"f-est20", km:312367, fecha:"2026-11-01", ult:{fecha:"2026-09-14", km:299473}},
+];
+const CAMIONES_FRACTTAL = ["8236","8471","8815","409","8946","111","112"];
+function crearEstanques(s){
+  if (s.estV >= 1) return;
+  s.camiones.forEach(c => { if (CAMIONES_FRACTTAL.includes(String(c.pat))) c.tipo = "Camión"; });
+  ESTANQUES.forEach(e => {
+    const c = s.camiones.find(x => String(x.pat) === e.camion); if (!c) return;
+    const pat = "EST-" + e.camion, p = s.pautas.find(x => x.id === e.plan);
+    c.tipo = "Camión"; c.marca = (c.marca || "").replace(/\s*\+\s*Estanque.*$/, "");
+    c.pautaIds = (c.pautaIds || []).filter(id => id !== e.plan);
+    Object.keys(c.mant || {}).forEach(k => { if (k.startsWith(e.plan + "/")) delete c.mant[k]; });
+    if (p){ p.activos = (p.activos || []).filter(a => a !== e.camion); if (!p.activos.includes(pat)) p.activos.push(pat); }
+    let q = s.camiones.find(x => x.pat === pat);
+    if (!q){ q = {pat, marca:e.marca, base:c.base || "", tipo:"Estanque", km:e.km, kmFecha:e.fecha, estado:"operativo", intKm:10000, intDias:90, pautaIds:[e.plan], mant:{}}; s.camiones.push(q); }
+    if (p && p.tareas.length) q.mant[e.plan + "/" + p.tareas[0].id] = {fecha:e.ult.fecha, km:e.ult.km};
+    c.par = pat; q.par = c.pat;
+  });
+  s.estV = 1;
+}
 const EMPTY = () => ({camiones:[], ots:[], fallas:[], gastos:[], pautas:seedPautas(), seq:1, seedV:4});
 let D = load();
 function migrar(s){
@@ -297,6 +326,7 @@ function migrar(s){
       sp.tareas.forEach(st => { const t = p.tareas.find(x => x.nombre === st.nombre); if (t && st.items.length && (!t.items.length || ant.includes(p.id + "/" + t.nombre))) t.items = st.items; }); });
     s.seedV = 4;
   }
+  crearEstanques(s);
   aplicarParejas(s);
   return s;
 }
@@ -377,12 +407,14 @@ const camion = p => D.camiones.find(c => c.pat === p);
 const parDe = c => c && c.par ? camion(c.par) : null;
 /* Manda el tracto: un semi con tracto no genera pendientes ni avisos por si solo, viene con su tracto */
 const esRaiz = c => { const q = parDe(c); return !(q && esTractoC(q) && !esTractoC(c)); };
-const esTractoC = c => /tracto/i.test(c.tipo || "") || PAREJAS[c.pat] !== undefined;
+const esTractoC = c => /^(tractocami[oó]n|cami[oó]n)$/i.test(c.tipo || "") || PAREJAS[c.pat] !== undefined;   // unidad motriz: tracto o camión
+/** Nombre de la pareja de un equipo: Semi / Estanque (si es motriz) o Tracto / Camión (si es remolque) */
+const etiquetaPar = c => { const q = parDe(c); if (!q) return ""; return esTractoC(c) ? (q.tipo === "Estanque" ? "Estanque" : "Semi") : (q.tipo === "Camión" ? "Camión" : "Tracto"); };
 const ST_PREV_TXT = {vencido:"preventivo vencido", proximo:"preventivo próximo", ok:"al día", sin:"sin plan"};
 /** Texto de la pareja fija: "Semi 616 · 123.000 km · al día" (tracto <-> semi) */
 function parInfo(c){
   if (!c || !c.par) return "";
-  const q = parDe(c), rol = esTractoC(c) ? "Semi" : "Tracto";
+  const q = parDe(c), rol = etiquetaPar(c);
   return q ? `${rol} ${q.pat} · ${fkm(q.km)} · ${ST_PREV_TXT[prev(q).st]}` : `${rol} ${c.par}`;
 }
 function setPar(c, nuevo){
@@ -652,7 +684,7 @@ function vCamiones(){
     return `<div class="row ${c.estado==="detenido"?"flag":c.estado==="taller"?"warn":""}">
       <div><span class="plate">${esc(c.pat)}</span></div>
       <div class="what"><div class="d">${esc(c.marca||"Sin modelo")} ${tag(st[0], st[1])}${p.st==="vencido"?" "+tag("Preventivo vencido","red"):p.st==="proximo"?" "+tag("Preventivo próximo","amber"):""}</div>
-        <div class="m"><span>${fkm(c.km)}${c.kmFecha?` <small>(al ${fdate(c.kmFecha)})</small>`:""}</span>${c.base?`<span>${esc(c.base)}</span>`:""}${c.par?`<span><b>${esTractoC(c)?"Semi":"Tracto"} ${esc(c.par)}</b> <small>(equipo aparte, con su propia pauta y OT)</small></span>`:""}<span>Última mantención ${fdate(c.ultFecha)}${c.ultKm!=null?` (${fkm(c.ultKm)})`:""}</span><span>Próxima ${p.nk!=null?fkm(p.nk):""}${p.nk!=null&&p.nd?" o ":""}${p.nd?fdate(p.nd):""}${p.nk==null&&!p.nd?"—":""}</span><span>${ab} OT abierta${ab===1?"":"s"} · ${ots.length} en historial</span>${(c.pautaIds||[]).length?`<span>Pautas: ${esc((c.pautaIds||[]).map(id => (pautaPorId(id)||{nombre:id}).nombre.replace(/^FLOTA\s*-?\s*(PLAN|PAUTA)\s+(DE\s+)?MANTEN[A-Z]+\s+/i,"")).join(" + "))}</span>`:""}</div></div>
+        <div class="m"><span>${fkm(c.km)}${c.kmFecha?` <small>(al ${fdate(c.kmFecha)})</small>`:""}</span>${c.base?`<span>${esc(c.base)}</span>`:""}${c.par?`<span><b>${etiquetaPar(c)} ${esc(c.par)}</b> <small>(equipo aparte, con su propia pauta y OT)</small></span>`:""}<span>Última mantención ${fdate(c.ultFecha)}${c.ultKm!=null?` (${fkm(c.ultKm)})`:""}</span><span>Próxima ${p.nk!=null?fkm(p.nk):""}${p.nk!=null&&p.nd?" o ":""}${p.nd?fdate(p.nd):""}${p.nk==null&&!p.nd?"—":""}</span><span>${ab} OT abierta${ab===1?"":"s"} · ${ots.length} en historial</span>${(c.pautaIds||[]).length?`<span>Pautas: ${esc((c.pautaIds||[]).map(id => (pautaPorId(id)||{nombre:id}).nombre.replace(/^FLOTA\s*-?\s*(PLAN|PAUTA)\s+(DE\s+)?MANTEN[A-Z]+\s+/i,"")).join(" + "))}</span>`:""}</div></div>
       <div class="acts"><button class="btn sm" data-act="hist" data-id="${esc(c.pat)}">Historial</button><button class="btn sm" data-act="edit-cam" data-id="${esc(c.pat)}">Editar</button><button class="btn sm danger" data-act="del-cam" data-id="${esc(c.pat)}">Eliminar</button></div></div>`;
   }).join("");
 }
@@ -676,9 +708,9 @@ function vTareas(){
       || (p.kmR != null ? `<div>${p.kmR<=0?`Pasado por ${fkm(-p.kmR)}`:`Faltan ${fkm(p.kmR)}`}</div>` : "");
     return `<div class="kc ${p.st==="vencido"?"flag":p.st==="proximo"?"warn":""}">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><input type="checkbox" data-act="sel" data-id="${esc(c.pat)}"${S.sel.has(c.pat)?" checked":""} style="width:18px;height:18px"><span class="plate">${esc(c.pat)}</span><small>${esc(c.tipo||"")}</small>${tag(lbl[p.st][0],lbl[p.st][1])}</div>
-      ${arr?`<div>${tag("Viene con el tracto "+trq.pat,"amber")}</div>`:""}
+      ${arr?`<div>${tag("Viene con el "+(trq.tipo==="Camión"?"camión ":"tracto ")+trq.pat,"amber")}</div>`:""}
       <div class="ks" style="display:grid">${lineas}</div>
-      <div class="ks"><span>Km actual ${fkm(c.km)}</span>${trq?`<span><b>${esTractoC(c)?"Semi":"Tracto"} ${esc(trq.pat)}</b></span>`:""}</div>
+      <div class="ks"><span>Km actual ${fkm(c.km)}</span>${trq?`<span><b>${etiquetaPar(c)} ${esc(trq.pat)}</b></span>`:""}</div>
       <div class="kact">${due.length||arr?`<button class="btn sm pri" data-act="gen-ot" data-id="${esc(c.pat)}">Generar OT</button>`:""}<button class="btn sm" data-act="hecha" data-id="${esc(c.pat)}">Registrar mantención hecha</button></div></div>`;
   };
   const btn = (act, id, txt, cls, v) => `<button class="btn sm ${cls||""}" data-act="${act}" data-id="${id}"${v?` data-v="${v}"`:""}>${txt}</button>`;
@@ -732,7 +764,7 @@ function vMedidores(){
       : (p.nk != null ? barra("Mantención cada "+fkm(c.intKm), p.st, p.kmR, c.intKm, p.nk, c.ultKm) : "");
     return `<div class="kc ${p.st==="vencido"?"flag":p.st==="proximo"?"warn":""}">
       <div style="display:flex;justify-content:space-between;gap:8px;align-items:center"><b style="font-size:16px">Odómetro ${esc(c.tipo||"Equipo")} ${esc(c.pat)}</b>${tag(lbl[0],lbl[1])}</div>
-      <div style="display:grid;grid-template-columns:auto 1fr;gap:2px 10px;font-size:14px"><span style="color:var(--blue)">Último valor:</span><b>${fkm(c.km)}</b><span style="color:var(--blue)">Última fecha:</span><span>${c.kmFecha?fdate(c.kmFecha):"—"}</span><span style="color:var(--blue)">Activo:</span><span>${esc(c.pat)} ${esc(c.marca||c.tipo||"")}${c.base?` · ${esc(c.base)}`:""}</span>${q?`<span style="color:var(--blue)">${esTractoC(c)?"Semi":"Tracto"}:</span><span>${esc(q.pat)}</span>`:""}</div>
+      <div style="display:grid;grid-template-columns:auto 1fr;gap:2px 10px;font-size:14px"><span style="color:var(--blue)">Último valor:</span><b>${fkm(c.km)}</b><span style="color:var(--blue)">Última fecha:</span><span>${c.kmFecha?fdate(c.kmFecha):"—"}</span><span style="color:var(--blue)">Activo:</span><span>${esc(c.pat)} ${esc(c.marca||c.tipo||"")}${c.base?` · ${esc(c.base)}`:""}</span>${q?`<span style="color:var(--blue)">${etiquetaPar(c)}:</span><span>${esc(q.pat)}</span>`:""}</div>
       ${filas || `<div class="ks">Sin pauta ni última mantención registrada</div>`}
       ${sinreg?`<div class="ks">${sinreg} tarea${sinreg===1?"":"s"} de su pauta sin registro</div>`:""}
       <div class="kact"><button class="btn sm" data-act="edit-cam" data-id="${esc(c.pat)}">Editar</button><button class="btn sm" data-act="hist" data-id="${esc(c.pat)}">Historial</button></div></div>`;
@@ -783,7 +815,7 @@ function vPrev(){
     return `<div class="row ${p.st==="vencido"?"flag":p.st==="proximo"?"warn":""}">
       <div><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" data-act="sel" data-id="${esc(c.pat)}"${S.sel.has(c.pat)?" checked":""} style="width:20px;height:20px"><span class="plate">${esc(c.pat)}</span></label></div>
       <div class="what"><div class="d">${tag(lbl[0],lbl[1])} ${esc(c.marca||c.tipo||"")}${arr?" "+tag("Se arrastra con el "+(esTractoC(trq)?"tracto ":"semi ")+trq.pat,"amber"):""}</div>
-        <div class="m">${p.tareas.length ? lineas : `${p.kmR!=null?`<span>${p.kmR<=0?`Pasado por ${fkm(-p.kmR)}`:`Faltan ${fkm(p.kmR)}`} (próx. ${fkm(p.nk)})</span>`:""}${p.dR!=null?`<span>${p.dR<0?`Vencido hace ${-p.dR} días`:`Faltan ${p.dR} días`} (${fdate(p.nd)})</span>`:""}`}${p.st==="sin"?`<span>${(c.pautaIds||[]).length?"Registra la última mantención de cada tarea (botón de la derecha)":"Asigna una pauta en Pautas o define el intervalo en Editar"}</span>`:""}${sinreg&&p.tareas.length?`<span>${sinreg} tarea${sinreg===1?"":"s"} sin registro</span>`:""}<span>Km actual ${fkm(c.km)}</span>${c.par?`<span><b>${esTractoC(c)?"Semi":"Tracto"} ${esc(c.par)}</b> <small>(aparte, con su propia pauta y OT)</small></span>`:""}</div></div>
+        <div class="m">${p.tareas.length ? lineas : `${p.kmR!=null?`<span>${p.kmR<=0?`Pasado por ${fkm(-p.kmR)}`:`Faltan ${fkm(p.kmR)}`} (próx. ${fkm(p.nk)})</span>`:""}${p.dR!=null?`<span>${p.dR<0?`Vencido hace ${-p.dR} días`:`Faltan ${p.dR} días`} (${fdate(p.nd)})</span>`:""}`}${p.st==="sin"?`<span>${(c.pautaIds||[]).length?"Registra la última mantención de cada tarea (botón de la derecha)":"Asigna una pauta en Pautas o define el intervalo en Editar"}</span>`:""}${sinreg&&p.tareas.length?`<span>${sinreg} tarea${sinreg===1?"":"s"} sin registro</span>`:""}<span>Km actual ${fkm(c.km)}</span>${c.par?`<span><b>${etiquetaPar(c)} ${esc(c.par)}</b> <small>(aparte, con su propia pauta y OT)</small></span>`:""}</div></div>
       <div class="acts">${due.length?`<button class="btn sm pri" data-act="gen-ot" data-id="${esc(c.pat)}">Generar OT${due.length>1?` (${due.length} tareas)`:""}</button>`:arr?`<button class="btn sm pri" data-act="gen-ot-arr" data-id="${esc(c.pat)}">Generar OT (con ${esc(trq.pat)})</button>`:""}<button class="btn sm" data-act="hecha" data-id="${esc(c.pat)}">Registrar mantención hecha</button></div></div>`;
   }).join("");
 }
@@ -1073,9 +1105,9 @@ function mostrarAlertasMant(lista){
   const corto = n => String(n).replace(/^MANTENIMIENTO PROGRAMADO\s*/i,"Programado ").replace(/^MANTENCIÓN\s*/i,"");
   const venc = lista.filter(x => x.st === "vencido"), prox = lista.filter(x => x.st === "proximo");
   const fila = x => { const cc = camion(x.pat); let extra = "";
-    if (cc && cc.par){ const q = parDe(cc), rol = esTractoC(cc) ? "Semi" : "Tracto";
+    if (cc && cc.par){ const q = parDe(cc), rol = etiquetaPar(cc);
       if (q){ const pq = prev(q), ts = pq.tareas.filter(t => t.st !== "sinreg").sort((p,r) => p.kmR - r.kmR), t = ts[0];
-        extra = `<div style="margin-left:6px;color:var(--muted,#667)">↳ ${rol} <b>${esc(q.pat)}</b> se arrastra con el tracto (su propia pauta y OT): ${t ? esc(corto(t.tarea.nombre)) + (t.kmR<=0 ? ` — pasada por ${fkm(-t.kmR)}` : ` — faltan ${fkm(t.kmR)}`) : ST_PREV_TXT[pq.st]}</div>`; } }
+        extra = `<div style="margin-left:6px;color:var(--muted,#667)">↳ ${rol} <b>${esc(q.pat)}</b> se arrastra con su unidad (su propia pauta y OT): ${t ? esc(corto(t.tarea.nombre)) + (t.kmR<=0 ? ` — pasada por ${fkm(-t.kmR)}` : ` — faltan ${fkm(t.kmR)}`) : ST_PREV_TXT[pq.st]}</div>`; } }
     return `<li><b>${esc(x.pat)}</b> · ${esc(corto(x.tarea))}${x.kmR==null?"":x.kmR<=0?` — pasada por ${fkm(-x.kmR)}`:` — faltan ${fkm(x.kmR)}`}${extra}</li>`; };
   const bloque = (arr, cls, txt) => arr.length ? `<div style="margin-top:10px"><span class="tag ${cls}">${txt} · ${arr.length}</span><ul style="margin:6px 0 0;padding-left:18px;font-size:14px;display:grid;gap:3px">${arr.slice(0,14).map(fila).join("")}${arr.length>14?`<li>… y ${arr.length-14} más</li>`:""}</ul></div>` : "";
   dlg.style.width = "min(560px,96vw)";
