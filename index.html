@@ -1185,6 +1185,7 @@ function leerUM(j){
       if (cand.length === 1){ hit = buscar([cand[0].id]); nuevoPlan = true; } }
     if (!hit){ sinPlan.push(id+" ("+it.tarea+")"); return; }
     const key = hit.p.id + "/" + hit.t.id, prevR = c.mant && c.mant[key];
+    if (it.quitar){ if (prevR) ok.push({id, key, plan:hit.p, tarea:hit.t, quitar:true}); return; }   // retira una lectura errónea
     if (prevR && prevR.fecha >= it.fecha){ viejos.push(id); return; }
     ok.push({id, key, plan:hit.p, tarea:hit.t, fecha:it.fecha, km:it.km, actual:it.medidorActual, nuevoPlan, esNuevo});
   });
@@ -1192,7 +1193,7 @@ function leerUM(j){
   const L = (arr, fn, max=10) => arr.length ? `<ul style="margin:4px 0 10px;padding-left:18px;font-size:13px">${arr.slice(0,max).map(fn).join("")}${arr.length>max?`<li>… y ${arr.length-max} más</li>`:""}</ul>` : "";
   dlg.innerHTML = `<form><h2>Importar últimas mantenciones</h2>
     <div class="sub" style="margin-bottom:8px">${j.items.length} registros del archivo${j.leido?` (leído el ${esc(j.leido)})`:""}. El km es el del odómetro cuando Fracttal activó la tarea, una aproximación de la última mantención.</div>
-    <div><b>${ok.length}</b> mantenciones por registrar${L(ok, x => `<li>${esc(x.id)}: ${esc(x.tarea.nombre)} · ${fkm(x.km)} · ${fdate(x.fecha)}${x.nuevoPlan?" · se asigna el plan":""}${x.esNuevo?" · equipo nuevo":""}</li>`)}</div>
+    <div><b>${ok.length}</b> mantenciones por registrar${L(ok, x => `<li>${esc(x.id)}: ${esc(x.tarea.nombre)} · ${x.quitar?"se retira la lectura errónea":fkm(x.km)+" · "+fdate(x.fecha)}${x.nuevoPlan?" · se asigna el plan":""}${x.esNuevo?" · equipo nuevo":""}</li>`)}</div>
     ${sinEq.length?`<div class="sub"><b>${sinEq.length}</b> equipos del archivo no están en el tablero: ${esc([...new Set(sinEq)].slice(0,12).join(", "))}${sinEq.length>12?"…":""}</div>`:""}
     ${sinPlan.length?`<div class="sub"><b>${sinPlan.length}</b> sin plan que coincida (asígnales su plan en Pautas): ${esc(sinPlan.slice(0,6).join("; "))}${sinPlan.length>6?"…":""}</div>`:""}
     ${viejos.length?`<div class="sub">${viejos.length} ya tenían una mantención igual o más reciente y no se cambian.</div>`:""}
@@ -1202,6 +1203,7 @@ function leerUM(j){
 function aplicarUM(){
   if (!UM) return;
   UM.ok.forEach(x => { let c = camion(x.id);
+    if (x.quitar){ if (c && c.mant) delete c.mant[x.key]; return; }
     if (!c){ c = {pat:x.id, marca:"", base:"", tipo:/RAMPLA/i.test(x.tarea.nombre) ? "Semirremolque" : "", km:null, estado:"operativo", intKm:10000, intDias:90, pautaIds:[], mant:{}}; D.camiones.push(c); }
     c.mant = c.mant || {};
     if (x.nuevoPlan && !(c.pautaIds||[]).includes(x.plan.id)){ c.pautaIds = c.pautaIds || []; c.pautaIds.push(x.plan.id); }
