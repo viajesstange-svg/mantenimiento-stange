@@ -289,6 +289,9 @@ const ESTANQUES = [
   {camion:"8887", marca:"QYS Ovalado 15m3", plan:"f-est20", km:257268, fecha:"2026-10-18", ult:{fecha:"2026-03-29", km:233771}},
   {camion:"8846", marca:"QYS Ovalado 15m3", plan:"f-est20", km:312367, fecha:"2026-11-01", ult:{fecha:"2026-09-14", km:299473}},
 ];
+const MECANICOS_INICIAL = ["Bernardo Neira","Guido Vera","Juan Carlos Gomez","Luis Bastias","Walter Parancan"];
+/* Terceros (externos): catálogo Terceros de Fracttal + los demás responsables externos de las OT */
+const TERCEROS_INICIAL = ["Arenado Felix Jayo","BBF","Bernardo Tapia","Casa del tubo del escape","Chile Parabrisas","DIFOR","DIMA service spa","Electronica Juan Carlos Barraza","Francisco Pérez","Franco Maldonado","Heraldo Silva","KAUFMANN","Kurt Schell","Luis Riquelme","Mauricio","Mecanica Toledo","Oscar Argel","Pablo Pacheco","Patricio Alarcon","Rodolfo Mendoza","SCANIA","SERMAIND","SOTEC","Taller Rodolfo Wandersleben","Temosur"];
 const CAMIONES_FRACTTAL = ["8236","8471","8815","409","8946","111","112"];
 function crearEstanques(s){
   if (s.estV >= 1) return;
@@ -307,7 +310,7 @@ function crearEstanques(s){
   });
   s.estV = 1;
 }
-const EMPTY = () => ({camiones:[], ots:[], fallas:[], gastos:[], pautas:seedPautas(), seq:1, seedV:4});
+const EMPTY = () => ({mecanicos:MECANICOS_INICIAL.slice(), terceros:TERCEROS_INICIAL.slice(), camiones:[], ots:[], fallas:[], gastos:[], pautas:seedPautas(), seq:1, seedV:4});
 let D = load();
 function migrar(s){
   s.pautas = s.pautas || [];
@@ -327,12 +330,14 @@ function migrar(s){
     s.seedV = 4;
   }
   crearEstanques(s);
+  if (!Array.isArray(s.mecanicos)) s.mecanicos = MECANICOS_INICIAL.slice();
+  if (!Array.isArray(s.terceros)) s.terceros = TERCEROS_INICIAL.slice();
   aplicarParejas(s);
   return s;
 }
 function load(){ return EMPTY(); }   /* los datos reales llegan del servidor en iniciar() */
 let ROL = "admin", TOKEN = "", BASE_FIJA = "";
-const SOLO_ADMIN = new Set(["new-pauta","edit-pauta","del-pauta","ft-asignar","um-imp","um-apply","imp-km","imp-apply","del-cam","del-ot","del-falla","del-gasto","demo","import"]);
+const SOLO_ADMIN = new Set(["new-pauta","edit-pauta","del-pauta","ft-asignar","um-imp","um-apply","mecanicos","imp-km","imp-apply","del-cam","del-ot","del-falla","del-gasto","demo","import"]);
 const SOLO_LECTURA = new Set(["tab","go","go-camiones","chip","hist","checklist","export","clave","salir"]);
 const permitido = a => ROL === "admin" || (ROL === "editor" && !SOLO_ADMIN.has(a)) || (ROL === "lector" && SOLO_LECTURA.has(a));
 function aplicarRol(){ if (ROL === "admin") return; document.querySelectorAll("[data-act]").forEach(b => { if (!permitido(b.dataset.act)) b.style.display = "none"; }); }
@@ -404,6 +409,7 @@ const fclp = n => "$"+Math.round(n||0).toLocaleString("es-CL");
 const fdate = s => { if(!s) return "—"; const [y,m,d] = s.split("-"); return `${+d}/${+m}/${y}`; };
 const MESES = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
 const camion = p => D.camiones.find(c => c.pat === p);
+const optsMec = cur => { const l = [...(D.mecanicos || []), ...(D.terceros || [])]; return ["", ...l, ...(cur && !l.includes(cur) ? [cur] : [])]; };
 const parDe = c => c && c.par ? camion(c.par) : null;
 /* Manda el tracto: un semi con tracto no genera pendientes ni avisos por si solo, viene con su tracto */
 const esRaiz = c => { const q = parDe(c); return !(q && esTractoC(q) && !esTractoC(c)); };
@@ -547,6 +553,14 @@ function fCamion(c){
       setPar(c, nuevaPar); }
   });
 }
+function fMecanicos(){
+  form("Mecánicos y terceros", [
+    {k:"mec", l:"Mecánicos (un nombre por línea)", t:"area", rows:9},
+    {k:"ter", l:"Terceros / externos (uno por línea)", t:"area", rows:9}],
+    {mec:(D.mecanicos || []).join("\n"), ter:(D.terceros || []).join("\n")},
+    v => { const lim = t => [...new Set(t.split("\n").map(x => x.trim()).filter(Boolean))].sort((a,b) => a.localeCompare(b));
+      D.mecanicos = lim(v.mec); D.terceros = lim(v.ter); });
+}
 function fOT(o, pre){
   if (needTrucks()) return; const isNew = !o;
   form(isNew ? "Nueva orden de trabajo" : "Orden #"+o.id, [
@@ -554,7 +568,7 @@ function fOT(o, pre){
     {k:"tipo", l:"Tipo", t:"sel", opts:[["preventivo","Preventivo (planificada)"],["correctivo","Correctivo (no planificada)"]]},
     {k:"desc", l:"Descripción", t:"area", req:1},
     {k:"prioridad", l:"Prioridad", t:"sel", opts:PRIO, def:"Media"},
-    {k:"resp", l:"Responsable / taller"},
+    {k:"resp", l:"Mecánico responsable", t:"sel", opts:optsMec((o||pre||{}).resp)},
     {k:"estado", l:"Estado", t:"sel", opts:Object.entries(ESTADOS_OT).map(([k,v])=>[k,v[0]]), def:"abierta"},
     {k:"creada", l:"Fecha de creación", t:"date", def:hoy()},
     {k:"vence", l:"Fecha comprometida", t:"date"},
@@ -600,7 +614,7 @@ function fHecha(c){
     ...(ts.length ? [{k:"tarea", l:"Qué mantención se hizo", t:"sel", opts:[["","General"], ...ts.map(x => [x.key, `${x.tarea.nombre} (${x.plan.nombre.replace(/^FLOTA\s*-\s*(PLAN|PAUTA)\s+(DE\s+)?MANTEN[A-Z]+\s+/i,"")})`])]}] : []),
     {k:"fecha", l:"Fecha", t:"date", def:hoy(), req:1},
     {k:"km", l:"Kilometraje al hacerla", t:"number", def:c.km},
-    {k:"resp", l:"Taller / responsable"},
+    {k:"resp", l:"Mecánico responsable", t:"sel", opts:optsMec("")},
     {k:"costo", l:"Costo (CLP)", t:"number"},
   ], {}, v => {
     if (v.tarea){ c.mant = c.mant || {}; c.mant[v.tarea] = {fecha:v.fecha, km:v.km != null ? v.km : (c.km||0)}; }
@@ -822,7 +836,7 @@ function vPrev(){
 
 function vPautas(){
   const asignados = D.pautas.reduce((a,p) => a + (p.activos||[]).length, 0);
-  const h = `<div class="chips" style="justify-content:space-between"><span class="sub">Planes de tareas (como en Fracttal): cada plan tiene tareas con su propio intervalo en km y checklist.</span><span style="display:flex;gap:8px;flex-wrap:wrap">${asignados?`<button class="btn" data-act="ft-asignar">Asignar camiones según Fracttal</button>`:""}<button class="btn" data-act="um-imp">Importar últimas mantenciones</button><button class="btn pri" data-act="new-pauta">+ Nuevo plan</button></span></div>`;
+  const h = `<div class="chips" style="justify-content:space-between"><span class="sub">Planes de tareas (como en Fracttal): cada plan tiene tareas con su propio intervalo en km y checklist.</span><span style="display:flex;gap:8px;flex-wrap:wrap">${asignados?`<button class="btn" data-act="ft-asignar">Asignar camiones según Fracttal</button>`:""}<button class="btn" data-act="mecanicos">Mecánicos y terceros</button><button class="btn" data-act="um-imp">Importar últimas mantenciones</button><button class="btn pri" data-act="new-pauta">+ Nuevo plan</button></span></div>`;
   const list = D.pautas.filter(p => match(p.nombre, p.tipo, ...p.tareas.map(t => t.nombre)));
   if (!list.length) return h + emptyMsg("Sin planes.");
   return h + list.map(p => {
@@ -943,7 +957,7 @@ function parteOT(c){
 function generarOTs(pats){
   const partes = pats.map(camion).filter(Boolean).map(parteOT);
   if (!partes.some(p => !p.error)){ alert(partes.map(p => `${p.c.pat}: ${p.error}`).join("\n") || "Nada que generar."); return; }
-  const mecs = [...new Set(D.ots.map(o => (o.resp||"").trim()).filter(Boolean))].sort();
+  const mecs = [...(D.mecanicos || [])].sort((a,b) => a.localeCompare(b)), ters = [...(D.terceros || [])].sort((a,b) => a.localeCompare(b));
   const nom = p => p.due.map(t => t.tarea.nombre).join(" + ");
   dlg.style.width = "min(600px,96vw)";
   dlg.innerHTML = `<form><h2>Generar orden de trabajo</h2>
@@ -951,11 +965,18 @@ function generarOTs(pats){
     <div style="display:grid;gap:6px;margin-bottom:12px">${partes.map((p,i) => p.error
       ? `<div style="font-size:14px;color:var(--muted)">✕ <b>${esc(p.c.pat)}</b> · no incluido: ${esc(p.error)}</div>`
       : `<label class="chk" style="margin:0"><input type="checkbox" name="e${i}" checked><span><b>${esc(p.c.pat)}</b> <small>${esc(p.c.tipo||"")}</small> · ${esc(nom(p))}</span></label>`).join("")}</div>
-    <label>Mecánico responsable<input name="resp" list="mecs" placeholder="Nombre del mecánico" autocomplete="off" required></label><datalist id="mecs">${mecs.map(m => `<option value="${esc(m)}">`).join("")}</datalist>
+    <label>Responsable<select name="resp" required><option value="">Selecciona un mecánico o tercero…</option><optgroup label="Mecánicos">${mecs.map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join("")}</optgroup><optgroup label="Terceros (externos)">${ters.map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join("")}</optgroup><option value="__nuevo">+ Agregar un mecánico…</option><option value="__nuevoT">+ Agregar un tercero…</option></select></label>
     <label>Fecha comprometida<input name="vence" type="date" value="${addDays(hoy(),3)}"></label>
     <div class="btns"><button type="button" class="btn" data-x>Cancelar</button><button class="btn pri">Generar OT</button></div></form>`;
   const fm = dlg.querySelector("form");
   fm.querySelector("[data-x]").onclick = () => dlg.close();
+  fm.elements.resp.onchange = () => {   // agregar un mecánico o un tercero nuevo a la lista
+    const v = fm.elements.resp.value; if (v !== "__nuevo" && v !== "__nuevoT") return;
+    const tercero = v === "__nuevoT", n = (prompt(tercero ? "Nombre del tercero nuevo" : "Nombre del mecánico nuevo") || "").trim();
+    if (n){ const k = tercero ? "terceros" : "mecanicos"; D[k] = D[k] || []; if (!D[k].includes(n)) D[k].push(n);
+      const o = document.createElement("option"); o.value = n; o.textContent = n; fm.elements.resp.insertBefore(o, fm.elements.resp.querySelector('option[value="__nuevo"]')); fm.elements.resp.value = n; }
+    else fm.elements.resp.value = "";
+  };
   fm.onsubmit = e => {
     e.preventDefault();
     const ch = partes.filter((p,i) => !p.error && fm.elements["e"+i].checked);
@@ -1148,6 +1169,7 @@ document.addEventListener("click", e => {
   else if (a === "new-pauta") fPlan();
   else if (a === "edit-pauta") fPlan(D.pautas.find(p => p.id === id));
   else if (a === "ft-asignar") asignarFracttal();
+  else if (a === "mecanicos") fMecanicos();
   else if (a === "um-imp") document.getElementById("um").click();
   else if (a === "um-apply") aplicarUM();
   else if (a === "del-pauta"){ if (confirm("¿Eliminar esta pauta? Los camiones que la usan quedan sin pauta.")){ D.pautas = D.pautas.filter(p => p.id !== id); D.camiones.forEach(c => { c.pautaIds = (c.pautaIds||[]).filter(x => x !== id); }); save(); render(); } }
