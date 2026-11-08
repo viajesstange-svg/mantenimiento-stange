@@ -426,7 +426,7 @@ function migrar(s){
 function load(){ return EMPTY(); }   /* los datos reales llegan del servidor en iniciar() */
 let ROL = "admin", TOKEN = "", BASE_FIJA = "";
 const SOLO_ADMIN = new Set(["new-pauta","edit-pauta","del-pauta","ft-asignar","um-imp","um-apply","mecanicos","meta","imp-km","imp-apply","del-cam","del-ot","del-falla","del-gasto","demo","import"]);
-const SOLO_LECTURA = new Set(["tab","go","go-camiones","chip","hist","checklist","export","clave","salir","base","per","ver-ot","menu-ot","abrir-ot","imprimir-ot"]);
+const SOLO_LECTURA = new Set(["tab","go","go-camiones","chip","hist","checklist","export","clave","salir","base","per","ver-ot","menu-ot","abrir-ot","imprimir-ot","foco"]);
 const permitido = a => ROL === "admin" || (ROL === "editor" && !SOLO_ADMIN.has(a)) || (ROL === "lector" && SOLO_LECTURA.has(a));
 function aplicarRol(){ if (ROL === "admin") return; document.querySelectorAll("[data-act]").forEach(b => { if (!permitido(b.dataset.act)) b.style.display = "none"; }); }
 let VERSION = 0, ESTADO = "", EMAIL = "", GUARDANDO = false, PENDIENTE = false, TIMER = null;
@@ -573,11 +573,12 @@ function prev(c){
 /* ================= Estado de la vista ================= */
 const TABS = [["resumen","Dashboard"],["camiones","Camiones"],["tareas","Detalle de tareas"],["medidores","Medidores"],["solicitudes","Solicitudes"],["pautas","Pautas"]];
 let ESTADO_ANT = null, USUARIO = "", ULTIMO = null, TAB_PREVIA = "", FORZAR_ENTRADA = false, PEND_PATS = [];   // ULTIMO: cuándo y quién guardó por última vez los datos (lo informa el servidor)
-let S = {sel:new Set(), tab:"resumen", q:"", base:"", f:{camiones:"todos", medidores:"todos", tareas:"todo", ots:"abiertas", prev:"pendientes"}};
+let S = {foco:null, sel:new Set(), tab:"resumen", q:"", base:"", f:{camiones:"todos", medidores:"todos", tareas:"todo", ots:"abiertas", prev:"pendientes"}};
 try{ const u = JSON.parse(localStorage.getItem(KEY+"_ui")||"{}"); if (TABS.some(x=>x[0]===u.tab)) S.tab = u.tab; if (typeof u.base === "string") S.base = u.base; }catch(e){}
 
 function guardarUI(){ try{ localStorage.setItem(KEY+"_ui", JSON.stringify({tab:S.tab, base:S.base})); }catch(e){} }
 function go(tab, filtro){
+  S.foco = null;
   if (tab === "ots" || tab === "prev"){ filtro = ["atrasadas","proximo","vencido"].includes(filtro) ? filtro : "todo"; tab = "tareas"; }
   S.tab = tab; if (filtro && S.f[tab] !== undefined) S.f[tab] = filtro;
   guardarUI();
@@ -755,19 +756,73 @@ const svgDonut = (segs, centro, sub) => { const tot = segs.reduce((a,x) => a + x
   return `<svg viewBox="0 0 42 42" class="dsv"><circle cx="21" cy="21" r="15.9155" fill="none" stroke="var(--line)" stroke-width="5.5"/>${arcs}<text x="21" y="22.6" text-anchor="middle" style="font-size:8px;font-weight:800;fill:var(--ink)"${num}>${centro}</text>${sub?`<text x="21" y="28" text-anchor="middle" style="font-size:3.3px;fill:var(--muted)">${sub}</text>`:""}</svg>`; };
 const svgMeses = meses => { const mx = Math.max(1, ...meses.flatMap(m => [m.c, m.f])), H = 100, bw = 16;
   return `<svg viewBox="0 0 300 ${H+38}" class="msv">${meses.map((m,i) => { const x = 10 + i*48, h1 = m.c*H/mx, h2 = m.f*H/mx;
-    return `<g><rect x="${x}" y="${22+H-h1}" width="${bw}" height="${h1}" rx="2" fill="var(--accent-2)"><title>${m.l}: ${m.c} creadas</title></rect><rect x="${x+bw+3}" y="${22+H-h2}" width="${bw}" height="${h2}" rx="2" fill="var(--green)"><title>${m.l}: ${m.f} cerradas</title></rect>
+    return `<g><rect data-act="foco" data-id="ots:mes:${m.k}:c" style="cursor:pointer" x="${x}" y="${22+H-h1}" width="${bw}" height="${h1}" rx="2" fill="var(--accent-2)"><title>${m.l}: ${m.c} creadas</title></rect><rect data-act="foco" data-id="ots:mes:${m.k}:f" style="cursor:pointer" x="${x+bw+3}" y="${22+H-h2}" width="${bw}" height="${h2}" rx="2" fill="var(--green)"><title>${m.l}: ${m.f} cerradas</title></rect>
       ${m.c?`<text x="${x+bw/2}" y="${18+H-h1}" text-anchor="middle" style="font-size:12px;fill:var(--ink)">${m.c}</text>`:""}${m.f?`<text x="${x+bw+3+bw/2}" y="${18+H-h2}" text-anchor="middle" style="font-size:12px;fill:var(--ink)">${m.f}</text>`:""}
       <text x="${x+bw+1.5}" y="${H+38}" text-anchor="middle" style="font-size:13px;fill:var(--muted)">${m.l}</text></g>`; }).join("")}</svg>`; };
 const svgCumpl = (meses, meta) => { const H = 100, bw = 26;
   return `<svg viewBox="0 0 300 ${H+38}" class="msv">${meses.map((m,i) => { const x = 10 + i*48, hh = m.pc == null ? 0 : m.pc*H/100;
-    return `<g><rect x="${x+4}" y="${22+H-hh}" width="${bw}" height="${hh}" rx="2" fill="${m.pc==null?"var(--line)":m.pc>=meta?"var(--green)":"#f59e0b"}"><title>${m.l}: ${m.pc==null?"sin OTs cerradas":Math.round(m.pc)+"% a tiempo ("+m.t+" cerradas)"}</title></rect>
+    return `<g><rect data-act="foco" data-id="ots:mes:${m.k}:f" style="cursor:pointer" x="${x+4}" y="${22+H-hh}" width="${bw}" height="${hh}" rx="2" fill="${m.pc==null?"var(--line)":m.pc>=meta?"var(--green)":"#f59e0b"}"><title>${m.l}: ${m.pc==null?"sin OTs cerradas":Math.round(m.pc)+"% a tiempo ("+m.t+" cerradas)"}</title></rect>
       ${m.pc!=null?`<text x="${x+4+bw/2}" y="${18+H-hh}" text-anchor="middle" style="font-size:12px;fill:var(--ink)">${Math.round(m.pc)}%</text>`:""}
       <text x="${x+4+bw/2}" y="${H+38}" text-anchor="middle" style="font-size:13px;fill:var(--muted)">${m.l}</text></g>`; }).join("")}
     <line x1="4" x2="296" y1="${22+H-meta*H/100}" y2="${22+H-meta*H/100}" stroke="var(--red)" stroke-width="1.5" stroke-dasharray="4 3"/><text x="296" y="${18+H-meta*H/100}" text-anchor="end" style="font-size:11px;fill:var(--red)">meta ${meta}%</text></svg>`; };
 const svgGrupo = (datos, series, mx) => { const H = 100, bw = 11, gw = 56;
   return `<svg viewBox="0 0 300 ${H+40}" class="msv">${datos.map((g,i) => { const x = 8 + i*gw;
-    return `<g>${g.v.map((n,j) => { const hh = n*H/mx; return `<rect x="${x+j*(bw+2)}" y="${22+H-hh}" width="${bw}" height="${hh}" rx="2" fill="${series[j][1]}"><title>${g.t} · ${series[j][0]}: ${n}</title></rect>${n?`<text x="${x+j*(bw+2)+bw/2}" y="${18+H-hh}" text-anchor="middle" style="font-size:11px;fill:var(--ink)">${n}</text>`:""}`; }).join("")}
+    return `<g>${g.v.map((n,j) => { const hh = n*H/mx; return `<rect data-act="foco" data-id="ots:eq:${g.t}:${series[j][0]}" style="cursor:pointer" x="${x+j*(bw+2)}" y="${22+H-hh}" width="${bw}" height="${hh}" rx="2" fill="${series[j][1]}"><title>${g.t} · ${series[j][0]}: ${n}</title></rect>${n?`<text x="${x+j*(bw+2)+bw/2}" y="${18+H-hh}" text-anchor="middle" style="font-size:11px;fill:var(--ink)">${n}</text>`:""}`; }).join("")}
       <text x="${x+19}" y="${H+36}" text-anchor="middle" style="font-size:11px;fill:var(--muted)">${g.t==="Tractocamión"?"Tracto":g.t==="Semirremolque"?"Semi":g.t}</text></g>`; }).join("")}</svg>`; };
+/* ===== Dashboard: al hacer clic en un elemento se muestra SOLO ese detalle, con un botón para volver ===== */
+const segPer = PER => `<div class="seg" role="group" aria-label="Período del panel">${[["30","30 días"],["90","90 días"],["mes","Este mes"],["mes-1","Mes pasado"],["todo","Todo"]].map(([k,l]) => `<button class="segb" data-act="per" data-id="${k}" aria-pressed="${PER===k}">${l}</button>`).join("")}</div>`;
+function vistaFoco(key, x){
+  const [t, k, v, w] = key.split(":"), per = " · " + x.perTxt;
+  const TIPOS_G = ["Tractocamión","Camión","Semirremolque","Estanque","Otro"];
+  const tipoOT = o => { const tt = (camion(o.pat)||{}).tipo; return TIPOS_G.includes(tt) ? tt : "Otro"; };
+  const grupoPri = p => p === "Muy alta" || p === "Alta" ? "Alta" : p === "Media" ? "Media" : "Baja";
+  let titulo = "", ots = null, eqs = null, soli = null, usaPer = false, detalle = null, volver = ["tareas", "Ver en Detalle de tareas"];
+  if (t === "ots"){
+    if (k === "cerradas"){ titulo = "OTs cerradas" + per; ots = x.cerr30; usaPer = true; }
+    else if (k === "proceso"){ titulo = "OTs en proceso y en revisión"; ots = D.ots.filter(o => o.estado === "proceso" || o.estado === "revision"); }
+    else if (k === "abiertas"){ titulo = "OTs abiertas"; ots = x.abiertas; }
+    else if (k === "creadas"){ titulo = "OTs creadas" + per; ots = x.rec; usaPer = true; }
+    else if (k === "atrasadas"){ titulo = "OTs atrasadas"; ots = x.atras; }
+    else if (k === "atiempo"){ titulo = "OTs cerradas a tiempo" + per; ots = x.cerr30.filter(o => !o.vence || o.cerrada <= o.vence); usaPer = true; }
+    else if (k === "tipo"){ titulo = (v === "preventivo" ? "OTs preventivas" : "OTs correctivas") + per; ots = x.rec.filter(o => o.tipo === v); usaPer = true; }
+    else if (k === "prio"){ titulo = "OTs abiertas con prioridad " + v; ots = x.abiertas.filter(o => o.prioridad === v); }
+    else if (k === "priop"){ titulo = "OTs de prioridad " + v + per; ots = x.rec.filter(o => grupoPri(o.prioridad) === v); usaPer = true; }
+    else if (k === "estado"){ const nom = {abierta:"abiertas", proceso:"en proceso", revision:"en revisión", cerrada:"finalizadas"}[v] || v; titulo = "OTs " + nom + (v === "cerrada" ? per : ""); ots = v === "cerrada" ? x.cerr30 : D.ots.filter(o => o.estado === v); usaPer = v === "cerrada"; }
+    else if (k === "resp"){ titulo = "OTs cerradas por " + v + per; ots = x.cerr90.filter(o => (o.resp || "Sin responsable") === v); usaPer = true; }
+    else if (k === "mes"){ const m = MESES[+v.slice(5,7)-1] + " " + v.slice(0,4), cre = w === "c"; titulo = (cre ? "OTs creadas en " : "OTs cerradas en ") + m; ots = D.ots.filter(o => cre ? (o.creada||"").startsWith(v) : o.estado === "cerrada" && (o.cerrada||"").startsWith(v)); }
+    else if (k === "eq"){ titulo = "OTs de " + v + " · prioridad " + w + per; ots = x.rec.filter(o => tipoOT(o) === v && grupoPri(o.prioridad) === w); usaPer = true; }
+  } else if (t === "eq"){
+    volver = ["medidores", "Ver en Medidores"];
+    if (k === "detenidos"){ titulo = "Equipos detenidos o en taller"; eqs = x.det.map(c => ({c, p:prev(c)})); }
+    else if (["ok","proximo","vencido","sin"].includes(k)){ titulo = {ok:"Equipos al día", proximo:"Próximos a mantención", vencido:"Preventivos vencidos", sin:"Equipos sin plan"}[k]; eqs = x.raices.filter(e => e.p.st === k); }
+    else if (k === "plan"){ titulo = "Cumplimiento del plan · equipos con plan"; eqs = x.raices.filter(e => e.p.st !== "sin"); }
+    else if (k === "base"){ titulo = "Base " + v; eqs = x.raices.filter(e => e.c.base === v); }
+    else if (k === "pat"){ detalle = D.camiones.find(c => String(c.pat) === v); titulo = "Equipo " + v; }
+  } else if (t === "soli"){ titulo = "Solicitudes nuevas de conductores"; soli = D.fallas.filter(f => f.ext && f.nueva && !f.otId); volver = ["solicitudes", "Ver en Solicitudes"]; }
+
+  const corto = n => n.replace(/^MANTENIMIENTO PROGRAMADO\s*/i,"Programado ").replace(/^MANTENCIÓN\s*/i,"");
+  const stTag = st => tag({vencido:"Vencido", proximo:"Próximo", ok:"Al día", sin:"Sin plan", sinreg:"Sin registro"}[st] || st, {vencido:"red", proximo:"amber", ok:"green"}[st] || "gray");
+  const tablaOT = list => !list.length ? `<div class="sm">No hay OTs con este criterio.</div>` :
+    `<div style="overflow-x:auto"><table class="dtab"><thead><tr><th>OT</th><th>Equipos</th><th>Descripción</th><th>Tipo</th><th>Prioridad</th><th>Estado</th><th>Responsable</th><th>Fecha</th></tr></thead><tbody>${list.slice().sort((a,b) => (b.cerrada || b.creada || "").localeCompare(a.cerrada || a.creada || "")).map(o => `<tr class="click" data-act="abrir-ot" data-id="${o.id}" title="Abrir la OT"><td><b style="color:var(--blue)">#${o.id}</b></td><td>${otPats(o).map(p => `<span class="plate">${esc(p)}</span>`).join(" ")}</td><td>${esc(o.desc)}</td><td>${tag(o.tipo === "preventivo" ? "Preventiva" : "Correctiva", o.tipo === "preventivo" ? "green" : "red")}</td><td>${tag(o.prioridad || "—", PRIO_TAG[o.prioridad] || "gray")}</td><td>${tag((ESTADOS_OT[o.estado] || [o.estado])[0], (ESTADOS_OT[o.estado] || [0,"gray"])[1])}${otAtrasada(o) ? " " + tag("Atrasada","red") : ""}</td><td>${esc(o.resp || "—")}</td><td>${o.cerrada ? "Cerrada " + fdate(o.cerrada) : o.vence ? "Vence " + fdate(o.vence) : fdate(o.creada)}</td></tr>`).join("")}</tbody></table></div>`;
+  const tablaEq = list => !list.length ? `<div class="sm">No hay equipos con este criterio.</div>` :
+    `<div style="overflow-x:auto"><table class="dtab"><thead><tr><th>Equipo</th><th>Modelo</th><th>Base</th><th>Estado</th><th>Tarea más cercana</th><th style="text-align:right">Km actual</th><th style="text-align:right">Faltan</th></tr></thead><tbody>${list.slice().sort((a,b) => (a.p.kmR ?? 1e12) - (b.p.kmR ?? 1e12)).map(e => { const tr = e.p.tareas.filter(tt => tt.st !== "sinreg").sort((a,b) => a.kmR - b.kmR)[0], q = parDe(e.c);
+      return `<tr class="click" data-act="foco" data-id="eq:pat:${esc(e.c.pat)}" title="Ver solo este equipo"><td><span class="plate">${esc(e.c.pat)}</span>${q ? ` <small class="sub">${etiquetaPar(e.c)} ${esc(q.pat)}</small>` : ""}</td><td>${esc(e.c.marca || e.c.tipo || "")}</td><td>${esc(e.c.base || "")}</td><td>${e.c.estado !== "operativo" ? tag(ESTADOS_CAM[e.c.estado][0], ESTADOS_CAM[e.c.estado][1]) + " " : ""}${stTag(e.p.st)}</td><td>${tr ? esc(corto(tr.tarea.nombre)) : "—"}</td><td style="text-align:right">${fkm(e.c.km)}</td><td style="text-align:right">${e.p.kmR == null ? "—" : e.p.kmR <= 0 ? `pasada por ${fkm(-e.p.kmR)}` : fkm(e.p.kmR)}</td></tr>`; }).join("")}</tbody></table></div>`;
+
+  let cuerpo = "", cuenta = "";
+  if (ots){ cuerpo = tablaOT(ots); cuenta = ots.length + (ots.length === 1 ? " OT" : " OTs"); }
+  else if (eqs){ cuerpo = tablaEq(eqs); cuenta = eqs.length + (eqs.length === 1 ? " equipo" : " equipos"); }
+  else if (soli){ cuerpo = soli.length ? `<div style="display:grid;gap:8px">${soli.map(f => `<div class="click" data-act="go" data-tab="solicitudes" style="padding:10px 12px;border:1px solid var(--line);border-radius:12px">${tag("Nueva","blue")} <b>${esc(f.pat)}</b> · ${esc(f.desc)} ${f.opera === "No" ? tag("No puede operar","red") : ""}<div class="sub">${esc(f.reportado || "")} · ${fdate(f.fecha)}</div></div>`).join("")}</div>` : `<div class="sm">No hay solicitudes nuevas.</div>`; cuenta = soli.length + " solicitudes"; }
+  else if (detalle){
+    const c = detalle, p = prev(c), q = parDe(c), tareas = p.tareas.slice().sort((a,b) => (a.kmR ?? 1e12) - (b.kmR ?? 1e12));
+    cuenta = esc(c.tipo || "Equipo");
+    cuerpo = `<div style="display:flex;gap:14px 18px;flex-wrap:wrap;align-items:center;margin-bottom:14px"><span class="plate" style="font-size:18px">${esc(c.pat)}</span><div><b>${esc(c.marca || c.tipo || "")}</b><div class="sm">${esc(c.tipo || "")} · ${esc(c.base || "sin base")} · ${fkm(c.km)}</div></div>${stTag(p.st)}${q ? `<span>${etiquetaPar(c)}: <b>${esc(q.pat)}</b> <button class="btn sm" data-act="foco" data-id="eq:pat:${esc(q.pat)}">Ver</button></span>` : ""}</div>
+      <div class="sec" style="margin-top:6px">Tareas de mantención</div>
+      ${tareas.length ? `<div style="overflow-x:auto"><table class="dtab"><thead><tr><th>Tarea</th><th style="text-align:right">Última (km)</th><th style="text-align:right">Próxima (km)</th><th style="text-align:right">Faltan</th><th>Estado</th></tr></thead><tbody>${tareas.map(tt => `<tr><td>${esc(corto(tt.tarea.nombre))}</td><td style="text-align:right">${tt.last ? fkm(tt.last.km) : "—"}</td><td style="text-align:right">${tt.nk != null ? fkm(tt.nk) : "—"}</td><td style="text-align:right">${tt.kmR == null ? "—" : tt.kmR <= 0 ? `pasada por ${fkm(-tt.kmR)}` : fkm(tt.kmR)}</td><td>${stTag(tt.st)}</td></tr>`).join("")}</tbody></table></div>` : `<div class="sm">Este equipo no tiene una pauta asignada.</div>`}
+      <div class="sec">OTs del equipo</div>${tablaOT(D.ots.filter(o => otIncluye(o, c.pat)))}`;
+  }
+  return `<div class="dhead"><div><button class="btn sm" data-act="foco" data-id="">← Volver al dashboard</button><h2 class="dtitle" style="margin-top:12px">${esc(titulo)}</h2><div class="dstat"><span><b>${cuenta}</b>${usaPer ? " · " + esc(x.perTxt) : ""}</span></div></div>${usaPer ? segPer(x.PER) : ""}</div>
+  <div class="dcard" style="margin-top:12px">${cuerpo}<div style="margin-top:6px"><button class="btn sm" data-act="go" data-tab="${volver[0]}">${volver[1]}</button></div></div>`;
+}
 function vResumen(){
   if (!D.camiones.length) return emptyMsg("Aún no hay datos. Agrega tus camiones en <b>Camiones</b> o prueba el tablero con datos de ejemplo.",
     `<br><button class="btn pri" data-act="go-camiones">Agregar camiones</button><button class="btn" data-act="demo">Cargar datos de ejemplo</button>`);
@@ -790,6 +845,7 @@ function vResumen(){
   const nuevasObs = D.fallas.filter(x => x.ext && x.nueva && !x.otId);
   const rec = D.ots.filter(o => enPer(o.creada)), plan = rec.filter(o => o.tipo === "preventivo").length, noPlan = rec.length - plan;
   const col = {ok:"var(--green)", proximo:"var(--amber)", vencido:"var(--red)", sin:"var(--muted)"};
+  if (S.foco) return vistaFoco(S.foco, {PER, perTxt, enPer, raices, det, abiertas, atras, cerr30, cerr90, rec});
   const cumplPlan = pct(nOk, conPlan);
   // OTs por mes (últimos 6)
   const meses = []; for (let i = 5; i >= 0; i--){ const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - i); const k = iso(d).slice(0,7);
@@ -805,7 +861,7 @@ function vResumen(){
   const porResp = {}; cerr90.forEach(o => { const r = o.resp || "Sin responsable"; porResp[r] = (porResp[r]||0) + 1; });
   const resp = Object.entries(porResp).sort((a,b) => b[1]-a[1]).slice(0,6), mxR = Math.max(1, ...resp.map(x => x[1]));
   // estados de las OT
-  const eo = [["abierta","Abiertas"],["proceso","En proceso"],["revision","En revisión"],["cerrada","Finalizadas (período)"]].map(([k,l]) => [l, k === "cerrada" ? cerr30.length : D.ots.filter(o => o.estado === k).length]);
+  const eo = [["abierta","Abiertas"],["proceso","En proceso"],["revision","En revisión"],["cerrada","Finalizadas (período)"]].map(([k,l]) => [l, k === "cerrada" ? cerr30.length : D.ots.filter(o => o.estado === k).length, k]);
   const mxE = Math.max(1, ...eo.map(x => x[1]));
   const pr = PRIO.map(p => [p, abiertas.filter(o => o.prioridad === p).length]), mxP = Math.max(1, ...pr.map(x => x[1]));
   // por base
@@ -815,14 +871,14 @@ function vResumen(){
   const corto = t => t.replace(/^MANTENIMIENTO PROGRAMADO\s*/i,"Programado ").replace(/^MANTENCIÓN\s*/i,"");
   const prox = raices.filter(x => x.p.kmR != null && x.p.st !== "sin").sort((a,b) => a.p.kmR - b.p.kmR).slice(0,10).map(x => {
     const t = x.p.tareas.filter(t => t.st !== "sinreg").sort((a,b) => a.kmR - b.kmR)[0];
-    return `<tr class="click" data-act="go" data-tab="tareas" title="Ver en Detalle de tareas"><td><b>${esc(x.c.pat)}</b></td><td>${esc(x.c.marca||x.c.tipo||"")}</td><td>${esc(x.c.base||"")}</td><td>${t?esc(corto(t.tarea.nombre)):"Mantención"}</td><td style="text-align:right">${x.p.kmR<=0?`pasada por ${fkm(-x.p.kmR)}`:`faltan ${fkm(x.p.kmR)}`}</td><td>${tag(x.p.st==="vencido"?"Vencido":x.p.st==="proximo"?"Próximo":"Al día", x.p.st==="vencido"?"red":x.p.st==="proximo"?"amber":"green")}</td></tr>`; }).join("");
+    return `<tr class="click" data-act="foco" data-id="eq:pat:${esc(x.c.pat)}" title="Ver solo este equipo"><td><b>${esc(x.c.pat)}</b></td><td>${esc(x.c.marca||x.c.tipo||"")}</td><td>${esc(x.c.base||"")}</td><td>${t?esc(corto(t.tarea.nombre)):"Mantención"}</td><td style="text-align:right">${x.p.kmR<=0?`pasada por ${fkm(-x.p.kmR)}`:`faltan ${fkm(x.p.kmR)}`}</td><td>${tag(x.p.st==="vencido"?"Vencido":x.p.st==="proximo"?"Próximo":"Al día", x.p.st==="vencido"?"red":x.p.st==="proximo"?"amber":"green")}</td></tr>`; }).join("");
   const alertas = [
     ...nuevasObs.map(x => `<li>${tag("Solicitud nueva","blue")} <b>${esc(x.pat)}</b> · ${esc(x.desc)} ${x.opera==="No"?tag("No puede operar","red"):""} <button class="btn sm" data-act="go" data-tab="solicitudes">Ver</button></li>`),
     ...det.map(c => `<li>${tag(ESTADOS_CAM[c.estado][0], ESTADOS_CAM[c.estado][1])} <b>${esc(c.pat)}</b> ${esc(c.marca||"")}</li>`),
     ...D.ots.filter(o => o.hallazgos && o.hallazgos.decision === "sin").map(o => `<li>${tag("Hallazgo sin OT","red")} <b>${esc(otPats(o).join(" + "))}</b> · OT #${o.id} se cerró con ${esc(txtHz(hallazgosDe(o)))} sin OT correctiva</li>`),
     ...atras.map(o => `<li>${tag("OT atrasada","red")} <b>${esc(otPats(o).join(" + "))}</b> · ${esc(o.desc)} <span style="color:var(--muted)">(comprometida ${fdate(o.vence)})</span></li>`),
   ];
-  const leg = (c, t, f) => `<div${f?` class="click" role="button" title="Ver en Medidores" data-act="go" data-tab="medidores" data-f="${f}"`:""}><span class="k" style="background:${c}"></span>${t}</div>`;
+  const leg = (c, t, key) => `<div${key?` class="click" role="button" title="Ver solo esto" data-act="foco" data-id="${key}"`:""}><span class="k" style="background:${c}"></span>${t}</div>`;
   const enProc = D.ots.filter(o => o.estado === "proceso" || o.estado === "revision").length;
   const vivo = D.kmAuto ? diff(D.kmAuto.fecha, h) <= 8 : false;
   const ic = (cls, d) => `<span class="ic ${cls}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${d}</svg></span>`;
@@ -832,42 +888,42 @@ function vResumen(){
     clip:'<path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/>',
     plus:'<circle cx="12" cy="12" r="10"/><path d="M12 8v8M8 12h8"/>',
     inbox:'<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>'};
-  const kp = (cls, icono, titulo, num, sub, tab) => `<div class="dcard kp click" role="button" title="Ver en ${tab==="solicitudes"?"Solicitudes":"Detalle de tareas"}" data-act="go" data-tab="${tab}">${ic(cls, icono)}<div><h3>${titulo}</h3><div class="big" data-count="${num}">${num}</div><div class="sm">${sub}</div></div></div>`;
+  const kp = (cls, icono, titulo, num, sub, key) => `<div class="dcard kp click" role="button" title="Ver solo esto" data-act="foco" data-id="${key}">${ic(cls, icono)}<div><h3>${titulo}</h3><div class="big" data-count="${num}">${num}</div><div class="sm">${sub}</div></div></div>`;
   const segs = [["30","30 días"],["90","90 días"],["mes","Este mes"],["mes-1","Mes pasado"],["todo","Todo"]].map(([k,l]) => `<button class="segb" data-act="per" data-id="${k}" aria-pressed="${PER===k}">${l}</button>`).join("");
   return `<div class="dhead"><div><h2 class="dtitle">Dashboard de mantenimiento</h2>${estadoActualizacion(vivo)}</div><div class="seg" role="group" aria-label="Período del panel">${segs}</div></div>
   <div class="sec">Órdenes de trabajo</div>
   <div class="dg t five">
-    ${kp("gr", I.ok, "OTs cerradas", cerr30.length, perTxt, "tareas")}
-    ${kp("am", I.tool, "OTs en proceso", enProc, "en proceso o en revisión", "tareas")}
-    ${kp("bl", I.clip, "OTs abiertas", abiertas.length, "abiertas, hoy", "tareas")}
-    ${kp("cy", I.plus, "OTs creadas", rec.length, perTxt, "tareas")}
-    ${kp("vi", I.inbox, "Solicitudes nuevas", nuevasObs.length, "de conductores, sin OT", "solicitudes")}
+    ${kp("gr", I.ok, "OTs cerradas", cerr30.length, perTxt, "ots:cerradas")}
+    ${kp("am", I.tool, "OTs en proceso", enProc, "en proceso o en revisión", "ots:proceso")}
+    ${kp("bl", I.clip, "OTs abiertas", abiertas.length, "abiertas, hoy", "ots:abiertas")}
+    ${kp("cy", I.plus, "OTs creadas", rec.length, perTxt, "ots:creadas")}
+    ${kp("vi", I.inbox, "Solicitudes nuevas", nuevasObs.length, "de conductores, sin OT", "soli")}
   </div>
   <div class="sec">Cumplimiento</div>
   <div class="dg t">
-    <div class="dcard click" role="button" title="Ver los equipos vencidos en Medidores" data-act="go" data-tab="medidores" data-f="vencido"><h3>Cumplimiento del plan</h3>${svgGauge(cumplPlan, cumplPlan==null?"var(--muted)":cumplPlan>=90?"var(--green)":cumplPlan>=70?"#f59e0b":"var(--red)")}<div class="sm" style="text-align:center">${nOk} de ${conPlan} equipos al día</div></div>
-    <div class="dcard click" role="button" title="Ver las OTs atrasadas" data-act="go" data-tab="tareas" data-f="atrasadas"><h3>OTs atrasadas</h3>${svgDonut([{n:atras.length,c:"var(--red)"},{n:Math.max(0,abiertas.length-atras.length),c:"var(--accent-2)"}], atras.length, "de "+abiertas.length+" abiertas")}<div class="sm" style="text-align:center">pasaron su fecha comprometida</div></div>
-    <div class="dcard click" role="button" title="Ver en Detalle de tareas" data-act="go" data-tab="tareas"><h3>OTs a tiempo · ${perTxt}</h3>${svgGauge(pct(aTiempo, cerr30.length), pct(aTiempo,cerr30.length)==null?"var(--muted)":"var(--green)")}<div class="sm" style="text-align:center">${aTiempo} de ${cerr30.length} cerradas a tiempo</div></div>
-    <div class="dcard" style="text-align:center;align-content:center"><h3>Tiempo medio de reparación</h3><div class="big"${mttr==null?"":` data-count="${Math.round(mttr*10)/10}" data-dec="1"`}>${mttr==null?"—":(Math.round(mttr*10)/10).toString().replace(".",",")}</div><div class="sm">días, de creada a cerrada · ${perTxt}</div></div>
+    <div class="dcard click" role="button" title="Ver solo esto" data-act="foco" data-id="eq:plan"><h3>Cumplimiento del plan</h3>${svgGauge(cumplPlan, cumplPlan==null?"var(--muted)":cumplPlan>=90?"var(--green)":cumplPlan>=70?"#f59e0b":"var(--red)")}<div class="sm" style="text-align:center">${nOk} de ${conPlan} equipos al día</div></div>
+    <div class="dcard click" role="button" title="Ver solo esto" data-act="foco" data-id="ots:atrasadas"><h3>OTs atrasadas</h3>${svgDonut([{n:atras.length,c:"var(--red)"},{n:Math.max(0,abiertas.length-atras.length),c:"var(--accent-2)"}], atras.length, "de "+abiertas.length+" abiertas")}<div class="sm" style="text-align:center">pasaron su fecha comprometida</div></div>
+    <div class="dcard click" role="button" title="Ver solo esto" data-act="foco" data-id="ots:atiempo"><h3>OTs a tiempo · ${perTxt}</h3>${svgGauge(pct(aTiempo, cerr30.length), pct(aTiempo,cerr30.length)==null?"var(--muted)":"var(--green)")}<div class="sm" style="text-align:center">${aTiempo} de ${cerr30.length} cerradas a tiempo</div></div>
+    <div class="dcard click" role="button" title="Ver solo esto" data-act="foco" data-id="ots:cerradas" style="text-align:center;align-content:center"><h3>Tiempo medio de reparación</h3><div class="big"${mttr==null?"":` data-count="${Math.round(mttr*10)/10}" data-dec="1"`}>${mttr==null?"—":(Math.round(mttr*10)/10).toString().replace(".",",")}</div><div class="sm">días, de creada a cerrada · ${perTxt}</div></div>
   </div>
   <div class="sec">Flota y mantenciones</div>
   <section class="kpis">
-    <button class="kpi ${det.length?"red":""}" data-act="go" data-tab="camiones" data-f="detenidos"><span class="l">Equipos detenidos hoy</span><span class="n" data-count="${det.length}">${det.length}</span><span class="s">de ${D.camiones.length} en flota</span></button>
-    <button class="kpi ${nPx?"amber":""}" data-act="go" data-tab="prev" data-f="proximo"><span class="l">Próximos a mantención</span><span class="n" data-count="${nPx}">${nPx}</span><span class="s">a menos de 1.000 km</span></button>
-    <button class="kpi ${nVc?"red":""}" data-act="go" data-tab="prev" data-f="vencido"><span class="l">Preventivos vencidos</span><span class="n" data-count="${nVc}">${nVc}</span><span class="s">por km o por fecha</span></button>
+    <button class="kpi ${det.length?"red":""}" data-act="foco" data-id="eq:detenidos"><span class="l">Equipos detenidos hoy</span><span class="n" data-count="${det.length}">${det.length}</span><span class="s">de ${D.camiones.length} en flota</span></button>
+    <button class="kpi ${nPx?"amber":""}" data-act="foco" data-id="eq:proximo"><span class="l">Próximos a mantención</span><span class="n" data-count="${nPx}">${nPx}</span><span class="s">a menos de 1.000 km</span></button>
+    <button class="kpi ${nVc?"red":""}" data-act="foco" data-id="eq:vencido"><span class="l">Preventivos vencidos</span><span class="n" data-count="${nVc}">${nVc}</span><span class="s">por km o por fecha</span></button>
   </section>
   <div class="dg c3">
-    <div class="dcard"><h3>Estado de la flota</h3><div style="display:grid;grid-template-columns:130px 1fr;gap:10px;align-items:center">${svgDonut([{n:nOk,c:col.ok},{n:nPx,c:"#f59e0b"},{n:nVc,c:col.vencido},{n:nSin,c:col.sin}], raices.length, "unidades")}<div class="dleg">${leg(col.ok,"Al día · <b>"+nOk+"</b>","ok")}${leg("#f59e0b","Próximos · <b>"+nPx+"</b>","proximo")}${leg(col.vencido,"Vencidos · <b>"+nVc+"</b>","vencido")}${leg(col.sin,"Sin plan · <b>"+nSin+"</b>","sin")}</div></div><div class="sm">Cada camión o tracto cuenta con su semi o estanque.</div></div>
-    <div class="dcard"><h3>Estado por base</h3>${porBase.map(x => `<div class="sbar-fila click" role="button" title="Filtrar todo el tablero por esta base" data-act="base" data-id="${esc(x.b)}" style="padding:3px 6px;margin:0 -6px"><div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px"><b>${esc(x.b)}${S.base===x.b?" ✓":""}</b><span>${x.tot} unidades${x.vc?` · <span style="color:var(--red)">${x.vc} vencidas</span>`:""}${x.px?` · <span style="color:var(--amber)">${x.px} próximas</span>`:""}</span></div><div class="sbar"><i style="width:${x.ok*100/x.tot}%;background:${col.ok}"></i><i style="width:${x.px*100/x.tot}%;background:#f59e0b"></i><i style="width:${x.vc*100/x.tot}%;background:${col.vencido}"></i><i style="width:${x.sin*100/x.tot}%;background:${col.sin}"></i></div></div>`).join("") || `<div class="sm">Sin equipos con base.</div>`}</div>
-    <div class="dcard"><h3>Tipo de mantención · ${perTxt}</h3>${rec.length ? `<div style="display:grid;grid-template-columns:130px 1fr;gap:10px;align-items:center">${svgDonut([{n:plan,c:"var(--green)"},{n:noPlan,c:"var(--red)"}], Math.round(plan*100/rec.length)+"%", "preventivo")}<div class="dleg">${leg("var(--green)","Preventivas · <b>"+plan+"</b> ("+Math.round(plan*100/rec.length)+"%)")}${leg("var(--red)","Correctivas · <b>"+noPlan+"</b> ("+Math.round(noPlan*100/rec.length)+"%)")}</div></div>` : `<div class="sm">Sin órdenes en este período.</div>`}</div>
+    <div class="dcard"><h3>Estado de la flota</h3><div style="display:grid;grid-template-columns:130px 1fr;gap:10px;align-items:center">${svgDonut([{n:nOk,c:col.ok},{n:nPx,c:"#f59e0b"},{n:nVc,c:col.vencido},{n:nSin,c:col.sin}], raices.length, "unidades")}<div class="dleg">${leg(col.ok,"Al día · <b>"+nOk+"</b>","eq:ok")}${leg("#f59e0b","Próximos · <b>"+nPx+"</b>","eq:proximo")}${leg(col.vencido,"Vencidos · <b>"+nVc+"</b>","eq:vencido")}${leg(col.sin,"Sin plan · <b>"+nSin+"</b>","eq:sin")}</div></div><div class="sm">Cada camión o tracto cuenta con su semi o estanque.</div></div>
+    <div class="dcard"><h3>Estado por base</h3>${porBase.map(x => `<div class="sbar-fila click" role="button" title="Ver solo esta base" data-act="foco" data-id="eq:base:${esc(x.b)}" style="padding:3px 6px;margin:0 -6px"><div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px"><b>${esc(x.b)}</b><span>${x.tot} unidades${x.vc?` · <span style="color:var(--red)">${x.vc} vencidas</span>`:""}${x.px?` · <span style="color:var(--amber)">${x.px} próximas</span>`:""}</span></div><div class="sbar"><i style="width:${x.ok*100/x.tot}%;background:${col.ok}"></i><i style="width:${x.px*100/x.tot}%;background:#f59e0b"></i><i style="width:${x.vc*100/x.tot}%;background:${col.vencido}"></i><i style="width:${x.sin*100/x.tot}%;background:${col.sin}"></i></div></div>`).join("") || `<div class="sm">Sin equipos con base.</div>`}</div>
+    <div class="dcard"><h3>Tipo de mantención · ${perTxt}</h3>${rec.length ? `<div style="display:grid;grid-template-columns:130px 1fr;gap:10px;align-items:center">${svgDonut([{n:plan,c:"var(--green)"},{n:noPlan,c:"var(--red)"}], Math.round(plan*100/rec.length)+"%", "preventivo")}<div class="dleg">${leg("var(--green)","Preventivas · <b>"+plan+"</b> ("+Math.round(plan*100/rec.length)+"%)","ots:tipo:preventivo")}${leg("var(--red)","Correctivas · <b>"+noPlan+"</b> ("+Math.round(noPlan*100/rec.length)+"%)","ots:tipo:correctivo")}</div></div>` : `<div class="sm">Sin órdenes en este período.</div>`}</div>
   </div>
   <div class="sec">Tendencias</div>
   <div class="dg c3">
     <div class="dcard"><h3>Cumplimiento por mes (OTs cerradas a tiempo)</h3>${svgCumpl(meses, META)}<div class="sm" style="display:flex;justify-content:space-between;align-items:center">Barra verde = cumple la meta<button class="btn sm" data-act="meta">Meta ${META}%</button></div></div>
-    <div class="dcard"><h3>OTs por tipo de equipo y prioridad · ${perTxt}</h3>${svgGrupo(porEq, PRI_G, mxG)}<div class="dleg" style="grid-auto-flow:column;justify-content:center;gap:16px">${PRI_G.map(([l,c]) => leg(c,l)).join("")}</div></div>
+    <div class="dcard"><h3>OTs por tipo de equipo y prioridad · ${perTxt}</h3>${svgGrupo(porEq, PRI_G, mxG)}<div class="dleg" style="grid-auto-flow:column;justify-content:center;gap:16px">${PRI_G.map(([l,c]) => leg(c,l,"ots:priop:"+l)).join("")}</div></div>
     <div class="dcard"><h3>OTs por mes</h3>${svgMeses(meses)}<div class="dleg" style="grid-auto-flow:column;justify-content:center;gap:16px">${leg("var(--accent-2)","Creadas")}${leg("var(--green)","Cerradas")}</div></div>
-    <div class="dcard"><h3>OTs cerradas por responsable · ${perTxt}</h3>${resp.length ? `<div class="bars">${resp.map(([r,k]) => `<div class="b"><span>${esc(r)}</span><span class="t"><i style="width:${k*100/mxR}%"></i></span><b>${k}</b></div>`).join("")}</div>` : `<div class="sm">Aún no hay OTs cerradas en este período.</div>`}</div>
-    <div class="dcard"><h3>Estado de las OT y prioridad</h3><div class="bars">${eo.map(([l,k]) => `<div class="b"><span>${l}</span><span class="t"><i style="width:${k*100/mxE}%"></i></span><b>${k}</b></div>`).join("")}</div><div class="sm" style="margin-top:4px">Abiertas por prioridad</div><div class="bars">${pr.map(([p,k]) => `<div class="b"><span>${p}</span><span class="t"><i style="width:${k*100/mxP}%"></i></span><b>${k}</b></div>`).join("")}</div></div>
+    <div class="dcard"><h3>OTs cerradas por responsable · ${perTxt}</h3>${resp.length ? `<div class="bars">${resp.map(([r,k]) => `<div class="b click" data-act="foco" data-id="ots:resp:${esc(r)}"><span>${esc(r)}</span><span class="t"><i style="width:${k*100/mxR}%"></i></span><b>${k}</b></div>`).join("")}</div>` : `<div class="sm">Aún no hay OTs cerradas en este período.</div>`}</div>
+    <div class="dcard"><h3>Estado de las OT y prioridad</h3><div class="bars">${eo.map(([l,k,e]) => `<div class="b click" data-act="foco" data-id="ots:estado:${e}"><span>${l}</span><span class="t"><i style="width:${k*100/mxE}%"></i></span><b>${k}</b></div>`).join("")}</div><div class="sm" style="margin-top:4px">Abiertas por prioridad</div><div class="bars">${pr.map(([p,k]) => `<div class="b click" data-act="foco" data-id="ots:prio:${p}"><span>${p}</span><span class="t"><i style="width:${k*100/mxP}%"></i></span><b>${k}</b></div>`).join("")}</div></div>
   </div>
   <div class="sec">Próximas mantenciones y alertas</div>
   <div class="dcard" style="margin-bottom:14px"><h3>Próximas mantenciones (las más cercanas)</h3>
@@ -1565,6 +1621,7 @@ document.addEventListener("click", e => {
   else if (a === "ft-asignar") asignarFracttal();
   else if (a === "meta"){ const v = prompt("Meta de cumplimiento de OTs a tiempo (%)", D.meta || 80); const n = Number(String(v).replace(",",".")); if (v !== null && n > 0 && n <= 100){ D.meta = Math.round(n); save(); render(); } }
   else if (a === "base"){ S.base = (S.base === id ? "" : id); guardarUI(); render(); }
+  else if (a === "foco"){ S.foco = id || null; FORZAR_ENTRADA = true; render(); window.scrollTo(0, 0); }
   else if (a === "per"){ S.per = id; FORZAR_ENTRADA = true; render(); }
   else if (a === "mecanicos") fMecanicos();
   else if (a === "um-imp") document.getElementById("um").click();
