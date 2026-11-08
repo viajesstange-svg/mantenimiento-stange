@@ -1371,7 +1371,7 @@ function fChecklist(o){
     </div>
     <div id="hzsum" style="margin-top:10px;display:none;border-radius:10px;padding:9px 12px;font-size:13px;font-weight:600"></div>
     <label style="margin-top:10px">Observación de la unidad<textarea name="notas" rows="3">${esc(o.notas||"")}</textarea></label>
-    <div class="btns"><button type="button" class="btn" data-x>Cancelar</button><button type="button" class="btn" data-ok="0">Guardar</button>${otAbierta(o)?`<button type="button" class="btn pri" data-ok="1">Guardar y cerrar OT</button>`:""}</div></form>`;
+    <div class="btns"><button type="button" class="btn" data-x>Cancelar</button><button type="button" class="btn" data-ok="0" title="Guarda el checklist y pasa la OT a En revisión">Guardar</button>${otAbierta(o)?`<button type="button" class="btn pri" data-ok="1" title="Guarda el checklist y deja la OT Finalizada">Guardar y cerrar OT</button>`:""}</div></form>`;
   const fm = dlg.querySelector("form");
   const cerrar = () => { dlg.close(); };
   fm.querySelector("[data-x]").onclick = cerrar;
@@ -1393,6 +1393,7 @@ function fChecklist(o){
       if (pend && !confirm(`Faltan ${pend} ítems sin responder. ¿Cerrar la OT igual?`)) return;
       cerrarOT(o); return;
     }
+    if (o.estado === "abierta" || o.estado === "proceso") o.estado = "revision";   // «Guardar» deja la OT en revisión
     save(); dlg.close(); render();
   });
   dlg.showModal();
