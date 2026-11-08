@@ -651,6 +651,7 @@ function fOT(o, pre){
     {k:"vence", l:"Fecha comprometida", t:"date"},
     {k:"costo", l:"Costo (CLP)", t:"number"},
   ], o || pre || {}, v => {
+    if (!isNew && otAbierta(o) && v.estado === "cerrada" && hallazgosDe(o).length && !o.hallazgos){ v.estado = o.estado; alert("Esta OT tiene fallos o alertas en su checklist. Ciérrala con el botón Cerrar o desde el Checklist: ahí decides qué hacer con ellos."); }
     if (v.estado === "cerrada") v.cerrada = (o && o.cerrada) || hoy(); else v.cerrada = null;
     const abria = !isNew && otAbierta(o);
     if (isNew) D.ots.push({id:nid(), ...v}); else Object.assign(o, v);
@@ -807,6 +808,7 @@ function vResumen(){
   const alertas = [
     ...nuevasObs.map(x => `<li>${tag("Solicitud nueva","blue")} <b>${esc(x.pat)}</b> · ${esc(x.desc)} ${x.opera==="No"?tag("No puede operar","red"):""} <button class="btn sm" data-act="go" data-tab="solicitudes">Ver</button></li>`),
     ...det.map(c => `<li>${tag(ESTADOS_CAM[c.estado][0], ESTADOS_CAM[c.estado][1])} <b>${esc(c.pat)}</b> ${esc(c.marca||"")}</li>`),
+    ...D.ots.filter(o => o.hallazgos && o.hallazgos.decision === "sin").map(o => `<li>${tag("Hallazgo sin OT","red")} <b>${esc(otPats(o).join(" + "))}</b> · OT #${o.id} se cerró con ${esc(txtHz(hallazgosDe(o)))} sin OT correctiva</li>`),
     ...atras.map(o => `<li>${tag("OT atrasada","red")} <b>${esc(otPats(o).join(" + "))}</b> · ${esc(o.desc)} <span style="color:var(--muted)">(comprometida ${fdate(o.vence)})</span></li>`),
   ];
   const leg = (c, t, f) => `<div${f?` class="click" role="button" title="Ver en Medidores" data-act="go" data-tab="medidores" data-f="${f}"`:""}><span class="k" style="background:${c}"></span>${t}</div>`;
@@ -924,7 +926,7 @@ function vTareas(){
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><b style="color:var(--blue)">OT #${o.id}</b>${tag(st[0],st[1])}${tag(o.tipo==="preventivo"?"Preventiva":"Correctiva", o.tipo==="preventivo"?"green":"red")}${tag(o.prioridad, PRIO_TAG[o.prioridad]||"gray")}${at?tag("Atrasada","red"):""}</div>
       <div>${otPats(o).map(p => `<span class="plate" style="margin-right:4px">${esc(p)}</span>`).join("")}</div>
       <div style="font-size:14px">${esc(o.desc)}</div>
-      <div class="ks">${o.resp?`<span>👤 ${esc(o.resp)}</span>`:`<span>Sin responsable</span>`}${o.vence&&otAbierta(o)?`<span>Comprometida ${fdate(o.vence)}</span>`:""}${o.cerrada?`<span>Cerrada ${fdate(o.cerrada)}</span>`:""}${o.costo!=null?`<span>${fclp(o.costo)}</span>`:""}${pr.length?`<span>Checklist ${pr.filter(i=>i.res).length}/${pr.length}${its.some(i=>i.res==="fallo")?` · ${its.filter(i=>i.res==="fallo").length} con falla`:""}</span>`:""}</div>
+      <div class="ks">${o.resp?`<span>👤 ${esc(o.resp)}</span>`:`<span>Sin responsable</span>`}${o.vence&&otAbierta(o)?`<span>Comprometida ${fdate(o.vence)}</span>`:""}${o.cerrada?`<span>Cerrada ${fdate(o.cerrada)}</span>`:""}${o.costo!=null?`<span>${fclp(o.costo)}</span>`:""}${pr.length?`<span>Checklist ${pr.filter(i=>i.res).length}/${pr.length}</span>`:""}${its.some(i=>i.res==="fallo")?tag(its.filter(i=>i.res==="fallo").length+" fallo"+(its.filter(i=>i.res==="fallo").length>1?"s":""),"red"):""}${its.some(i=>i.res==="alerta")?tag(its.filter(i=>i.res==="alerta").length+" alerta"+(its.filter(i=>i.res==="alerta").length>1?"s":""),"amber"):""}${o.hallazgos&&o.hallazgos.otId?`<span>→ OT correctiva #${o.hallazgos.otId}</span>`:""}${o.hallazgos&&o.hallazgos.decision==="sin"?tag("Cerrada sin OT correctiva","red"):""}${o.origenOT?`<span>Origen: OT #${o.origenOT}</span>`:""}</div>
       ${acts?`<div class="kact">${acts}</div>`:""}</div>`;
   };
   const okOT = o => match(otPats(o).join(" "), o.desc, o.resp) && (f !== "atrasadas" || otAtrasada(o));
@@ -1178,25 +1180,81 @@ function generarOTs(pats){
   };
   dlg.showModal();
 }
+/* ===== Hallazgos del checklist (alertas y fallos): al cerrar una OT hay que decidir qué hacer ===== */
+const hallazgosDe = o => (o.items || []).filter(it => it.res === "fallo" || it.res === "alerta").map(it => ({it}));
+const nHz = (hz, k) => hz.filter(x => x.it.res === k).length;
+const txtHz = hz => { const f = nHz(hz,"fallo"), a = nHz(hz,"alerta"); return [f ? f + (f===1?" fallo":" fallos") : "", a ? a + (a===1?" alerta":" alertas") : ""].filter(Boolean).join(" y "); };
+/** Único punto por el que se cierra una OT. Si trae alertas o fallos pide decidir; si no, cierra directo. */
+function cerrarOT(o, alTerminar){
+  const fin = () => { o.estado = "cerrada"; o.cerrada = hoy(); alCerrar(o); save(); dlg.close(); if (alTerminar) alTerminar(); render(); };
+  const hz = hallazgosDe(o);
+  if (!hz.length || o.hallazgos){ fin(); return; }
+  dialogoHallazgos(o, hz, fin);
+}
+function dialogoHallazgos(o, hz, fin){
+  const f = nHz(hz,"fallo"), mecs = [...(D.mecanicos || [])].sort((a,b) => a.localeCompare(b)), ters = [...(D.terceros || [])].sort((a,b) => a.localeCompare(b));
+  dlg.style.width = "min(640px,96vw)";
+  dlg.innerHTML = `<form><h2>${f ? "⚠ " : ""}Hallazgos en el checklist</h2>
+    <div class="sub" style="margin-bottom:10px">La OT #${o.id} tiene <b>${esc(txtHz(hz))}</b>. Antes de cerrarla decide qué hacer con ellos: lo normal es crear una OT correctiva para repararlos.</div>
+    <div style="display:grid;gap:8px;margin-bottom:12px;max-height:34vh;overflow:auto">${hz.map((x,i) => `<label class="chk" style="margin:0;align-items:flex-start"><input type="checkbox" name="h${i}" checked style="margin-top:4px"><span>${tag(x.it.res==="fallo"?"Falló":"Alerta", x.it.res==="fallo"?"red":"amber")} <b>${esc(x.it.eq || o.pat)}</b> · ${esc(x.it.sis)} — ${esc(x.it.desc)}</span></label>`).join("")}</div>
+    <label>Responsable de la OT correctiva<select name="resp"><option value="">Selecciona un mecánico o tercero…</option><optgroup label="Mecánicos">${mecs.map(m => `<option value="${esc(m)}"${m===o.resp?" selected":""}>${esc(m)}</option>`).join("")}</optgroup><optgroup label="Terceros (externos)">${ters.map(m => `<option value="${esc(m)}"${m===o.resp?" selected":""}>${esc(m)}</option>`).join("")}</optgroup></select></label>
+    <label>Fecha comprometida<input name="vence" type="date" value="${addDays(hoy(), f ? 2 : 5)}"></label>
+    <div class="btns" style="flex-wrap:wrap"><button type="button" class="btn" data-v>Volver al checklist</button><button type="button" class="btn" data-sin>Cerrar sin crear OT</button><button class="btn pri">Cerrar y crear OT correctiva</button></div></form>`;
+  const fm = dlg.querySelector("form");
+  fm.querySelector("[data-v]").onclick = () => { save(); fChecklist(o); };
+  fm.querySelector("[data-sin]").onclick = () => {
+    if (!confirm(`¿Cerrar la OT #${o.id} sin crear una OT correctiva?\n\nQuedará registrado que se cerró con ${txtHz(hz)} sin OT, y aparecerá en "Requiere atención" del Dashboard.`)) return;
+    o.hallazgos = {fallos:nHz(hz,"fallo"), alertas:nHz(hz,"alerta"), decision:"sin", fecha:hoy()}; fin();
+  };
+  fm.onsubmit = e => {
+    e.preventDefault();
+    const sel = hz.filter((x,i) => fm.elements["h"+i].checked);
+    if (!sel.length){ alert("Marca al menos un hallazgo para la OT correctiva, o elige «Cerrar sin crear OT»."); return; }
+    if (!fm.elements.resp.value){ alert("Selecciona el responsable de la OT correctiva."); return; }
+    const id = crearOTHallazgos(o, sel, fm.elements.resp.value, fm.elements.vence.value || addDays(hoy(), 3));
+    o.hallazgos = {fallos:nHz(hz,"fallo"), alertas:nHz(hz,"alerta"), decision:"ot", otId:id, fecha:hoy()}; fin();
+  };
+}
+function crearOTHallazgos(o, hz, resp, vence){
+  const pats = [...new Set(hz.map(x => x.it.eq || o.pat))], fallo = hz.some(x => x.it.res === "fallo"), nf = nHz(hz,"fallo"), na = nHz(hz,"alerta");
+  const items = hz.map(x => ({eq:x.it.eq || o.pat, grupo:x.it.grupo, sis:x.it.sis, desc:x.it.desc, tipo:x.it.tipo, res:null, desde:x.it.res}));
+  const id = nid();
+  const ot = {id, pat:pats[0], tipo:"correctivo", desc:`Hallazgos de la OT #${o.id}: ${[nf?nf+" fallo"+(nf>1?"s":""):"", na?na+" alerta"+(na>1?"s":""):""].filter(Boolean).join(" y ")}`,
+    prioridad: fallo ? "Alta" : "Media", resp, estado:"abierta", creada:hoy(), vence, cerrada:null, costo:null, notas:`Origen: OT #${o.id}`, origenOT:o.id, items};
+  if (pats.length > 1) ot.equipos = pats.map(p => ({pat:p, keys:[], kmOT:(camion(p)||{}).km, desc:"Hallazgos"}));
+  D.ots.push(ot); hz.forEach(x => { x.it.otId = id; });
+  return id;
+}
 function fChecklist(o){
   dlg.style.width = "min(760px,96vw)";
   dlg.innerHTML = `<form><h2>Checklist · OT #${o.id} · ${esc(otPats(o).join(" + "))}</h2><div class="sub" style="margin-bottom:10px">${esc(o.desc)}${o.kmOT!=null&&!o.equipos?` · km al generar ${fkm(o.kmOT)}`:""}${o.resp?` · Responsable: ${esc(o.resp)}`:""}</div>
     <div style="max-height:60vh;overflow:auto;border:1px solid var(--line);border-radius:10px">
-    ${o.items.map((it,i) => `${o.equipos && it.eq && (i===0 || o.items[i-1].eq !== it.eq) ? `<div class="sec" style="margin:0;padding:10px 12px;background:var(--navy,#16325c);color:#fff">Equipo ${esc(it.eq)}${(camion(it.eq)||{}).tipo?" · "+esc(camion(it.eq).tipo):""}</div>` : ""}${it.grupo && (i===0 || o.items[i-1].grupo !== it.grupo || (o.equipos && o.items[i-1].eq !== it.eq)) ? `<div class="sec" style="margin:0;padding:8px 12px;background:var(--surface-2)">${esc(it.grupo)}</div>` : ""}<div style="padding:9px 12px;border-bottom:1px solid var(--line);display:grid;gap:6px"><div><b style="font-size:12px;color:var(--muted)">${esc(it.sis)}</b><div style="font-size:14px">${esc(it.desc)}</div></div>
+    ${o.items.map((it,i) => `${o.equipos && it.eq && (i===0 || o.items[i-1].eq !== it.eq) ? `<div class="sec" style="margin:0;padding:10px 12px;background:var(--navy,#16325c);color:#fff">Equipo ${esc(it.eq)}${(camion(it.eq)||{}).tipo?" · "+esc(camion(it.eq).tipo):""}</div>` : ""}${it.grupo && (i===0 || o.items[i-1].grupo !== it.grupo || (o.equipos && o.items[i-1].eq !== it.eq)) ? `<div class="sec" style="margin:0;padding:8px 12px;background:var(--surface-2)">${esc(it.grupo)}</div>` : ""}<div class="ckrow" data-i="${i}" style="padding:9px 12px;border-bottom:1px solid var(--line);display:grid;gap:6px;transition:background .2s"><div><b style="font-size:12px;color:var(--muted)">${esc(it.sis)}</b><div style="font-size:14px">${esc(it.desc)}</div></div>
       ${it.tipo==="texto" ? `<input name="r${i}" value="${esc(it.res||"")}" placeholder="Observación" style="width:100%">` : `<div style="display:flex;gap:14px;flex-wrap:wrap">${RES(it.tipo).map(([v,l]) => `<label class="chk" style="margin:0"><input type="radio" name="r${i}" value="${v}"${it.res===v?" checked":""}>${l}</label>`).join("")}</div>`}</div>`).join("")}
     </div>
+    <div id="hzsum" style="margin-top:10px;display:none;border-radius:10px;padding:9px 12px;font-size:13px;font-weight:600"></div>
     <label style="margin-top:10px">Observación de la unidad<textarea name="notas" rows="3">${esc(o.notas||"")}</textarea></label>
     <div class="btns"><button type="button" class="btn" data-x>Cancelar</button><button type="button" class="btn" data-ok="0">Guardar</button>${otAbierta(o)?`<button type="button" class="btn pri" data-ok="1">Guardar y cerrar OT</button>`:""}</div></form>`;
   const fm = dlg.querySelector("form");
   const cerrar = () => { dlg.close(); };
   fm.querySelector("[data-x]").onclick = cerrar;
+  /* al marcar una alerta o un fallo la fila cambia de color y se avisa qué pasará al cerrar */
+  const pintar = () => {
+    let f = 0, a = 0;
+    fm.querySelectorAll(".ckrow").forEach(r => { const c = r.querySelector("input[type=radio]:checked"), v = c ? c.value : ""; if (v === "fallo") f++; if (v === "alerta") a++;
+      r.style.background = v === "fallo" ? "var(--red-bg)" : v === "alerta" ? "var(--amber-bg)" : ""; });
+    const b = fm.querySelector("#hzsum"); if (!f && !a){ b.style.display = "none"; return; }
+    b.style.display = "block"; b.style.background = f ? "var(--red-bg)" : "var(--amber-bg)"; b.style.color = f ? "var(--red)" : "var(--amber)";
+    b.textContent = `${[f ? f + (f===1?" fallo":" fallos") : "", a ? a + (a===1?" alerta":" alertas") : ""].filter(Boolean).join(" y ")} en este checklist. Al cerrar la OT te pediremos crear una OT correctiva.`;
+  };
+  fm.addEventListener("change", pintar); pintar();
   fm.querySelectorAll("[data-ok]").forEach(b => b.onclick = () => {
     o.items.forEach((it,i) => { if (it.tipo === "texto"){ it.res = fm.elements["r"+i].value.trim() || null; return; } const r = fm.querySelector(`input[name="r${i}"]:checked`); it.res = r ? r.value : null; });
     o.notas = fm.elements.notas.value.trim();
     if (b.dataset.ok === "1"){
       const pend = o.items.filter(i => i.tipo !== "texto" && !i.res).length;
       if (pend && !confirm(`Faltan ${pend} ítems sin responder. ¿Cerrar la OT igual?`)) return;
-      o.estado = "cerrada"; o.cerrada = hoy(); alCerrar(o);
+      cerrarOT(o); return;
     }
     save(); dlg.close(); render();
   });
@@ -1350,7 +1408,7 @@ document.addEventListener("click", e => {
   else if (a === "edit-ot"){ const o = byId(D.ots, id); if (o && otAbierta(o)) fOT(o); }
   else if (a === "close-ot"){ const o = byId(D.ots, id);
     if (o.items && o.items.some(i => i.tipo !== "texto" && !i.res) && !confirm("Esta OT tiene ítems del checklist sin responder. ¿Cerrar igual?")) return;
-    o.estado = "cerrada"; o.cerrada = hoy(); alCerrar(o); save(); render(); }
+    cerrarOT(o); }
   else if (a === "checklist"){ const o = byId(D.ots, id); if (o && otAbierta(o)) fChecklist(o); }
   else if (a === "gen-ot" || a === "gen-ot-arr"){ const c = camion(id), q = parDe(c); generarOTs(q ? (esTractoC(c) ? [id, q.pat] : [q.pat, id]) : [id]); }
   else if (a === "sel"){ const c = camion(id); if (b.checked){ S.sel.add(id); const q = parDe(c); if (q) S.sel.add(q.pat); } else S.sel.delete(id); render(); }
