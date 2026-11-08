@@ -415,7 +415,7 @@ function migrar(s){
 function load(){ return EMPTY(); }   /* los datos reales llegan del servidor en iniciar() */
 let ROL = "admin", TOKEN = "", BASE_FIJA = "";
 const SOLO_ADMIN = new Set(["new-pauta","edit-pauta","del-pauta","ft-asignar","um-imp","um-apply","mecanicos","meta","imp-km","imp-apply","del-cam","del-ot","del-falla","del-gasto","demo","import"]);
-const SOLO_LECTURA = new Set(["tab","go","go-camiones","chip","hist","checklist","export","clave","salir","base","per"]);
+const SOLO_LECTURA = new Set(["tab","go","go-camiones","chip","hist","checklist","export","clave","salir","base","per","ver-ot"]);
 const permitido = a => ROL === "admin" || (ROL === "editor" && !SOLO_ADMIN.has(a)) || (ROL === "lector" && SOLO_LECTURA.has(a));
 function aplicarRol(){ if (ROL === "admin") return; document.querySelectorAll("[data-act]").forEach(b => { if (!permitido(b.dataset.act)) b.style.display = "none"; }); }
 let VERSION = 0, ESTADO = "", EMAIL = "", GUARDANDO = false, PENDIENTE = false, TIMER = null;
@@ -921,7 +921,7 @@ function vTareas(){
   const cardOT = o => {
     const at = otAtrasada(o), st = ESTADOS_OT[o.estado], its = o.items || [], pr = its.filter(i => i.tipo !== "texto");
     const mover = o.estado === "abierta" ? btn("ot-estado", o.id, "Iniciar", "", "proceso") : o.estado === "proceso" ? btn("ot-estado", o.id, "A revisión", "", "revision") : o.estado === "revision" ? btn("ot-estado", o.id, "Volver a proceso", "", "proceso") : "";
-    const acts = otAbierta(o) ? `${mover}${o.items?btn("checklist", o.id, "Checklist"):""}${btn("close-ot", o.id, "Cerrar")}${btn("edit-ot", o.id, "Editar")}${btn("del-ot", o.id, "Eliminar", "danger")}` : "";
+    const acts = otAbierta(o) ? `${mover}${o.items?btn("checklist", o.id, "Checklist"):""}${btn("close-ot", o.id, "Cerrar")}${btn("edit-ot", o.id, "Editar")}${btn("del-ot", o.id, "Eliminar", "danger")}` : btn("ver-ot", o.id, "Ver detalle");
     return `<div class="kc ${at?"flag":""}">
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><b style="color:var(--blue)">OT #${o.id}</b>${tag(st[0],st[1])}${tag(o.tipo==="preventivo"?"Preventiva":"Correctiva", o.tipo==="preventivo"?"green":"red")}${tag(o.prioridad, PRIO_TAG[o.prioridad]||"gray")}${at?tag("Atrasada","red"):""}</div>
       <div>${otPats(o).map(p => `<span class="plate" style="margin-right:4px">${esc(p)}</span>`).join("")}</div>
@@ -1180,6 +1180,35 @@ function generarOTs(pats){
   };
   dlg.showModal();
 }
+/* ===== Ver una OT (solo lectura): sirve para revisar qué se hizo sin poder modificarla ===== */
+function verOT(o){
+  const RL = {si:"Sí", no:"No", na:"N/A", apf:"Aprobó", alerta:"Alerta", fallo:"Falló"}, RC = {si:"green", no:"gray", na:"gray", apf:"green", alerta:"amber", fallo:"red"};
+  const its = o.items || [], hz = hallazgosDe(o), pr = its.filter(i => i.tipo !== "texto"), st = ESTADOS_OT[o.estado] || ["", "gray"];
+  const dato = (l, v) => v ? `<div><div style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)">${l}</div><div>${v}</div></div>` : "";
+  const filas = its.map((it, i) => {
+    const ant = its[i-1];
+    const cabEq = o.equipos && it.eq && (!ant || ant.eq !== it.eq) ? `<div style="padding:10px 14px;background:linear-gradient(115deg,#0a1d3b,#11305f);color:#fff;font-weight:700">Equipo ${esc(it.eq)}${(camion(it.eq)||{}).tipo ? " · " + esc(camion(it.eq).tipo) : ""}</div>` : "";
+    const cabGr = it.grupo && (!ant || ant.grupo !== it.grupo || (o.equipos && ant.eq !== it.eq)) ? `<div style="padding:7px 14px;background:var(--surface-2);font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)">${esc(it.grupo)}</div>` : "";
+    const res = it.tipo === "texto" ? (it.res ? `<span style="font-size:13px">${esc(it.res)}</span>` : `<span class="sub">—</span>`) : it.res ? tag(RL[it.res] || it.res, RC[it.res] || "gray") : tag("Sin responder", "gray");
+    const fondo = it.res === "fallo" ? "var(--red-bg)" : it.res === "alerta" ? "var(--amber-bg)" : "";
+    return `${cabEq}${cabGr}<div style="padding:9px 14px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:14px;align-items:center;background:${fondo}"><div><b style="font-size:12px;color:var(--muted)">${esc(it.sis)}</b><div style="font-size:14px">${esc(it.desc)}</div>${it.otId ? `<div class="sub">→ derivado a la OT #${it.otId}</div>` : ""}</div><div style="white-space:nowrap">${res}</div></div>`;
+  }).join("");
+  const hallazgo = o.hallazgos ? `<div style="margin:12px 0;padding:10px 14px;border-radius:12px;background:${o.hallazgos.decision==="ot"?"var(--amber-bg)":"var(--red-bg)"};font-size:14px"><b>Hallazgos:</b> ${esc(txtHz(hz) || (o.hallazgos.fallos + " fallo(s), " + o.hallazgos.alertas + " alerta(s)"))} — ${o.hallazgos.decision === "ot" ? `se creó la <button type="button" class="btn sm" data-ver="${o.hallazgos.otId}">OT correctiva #${o.hallazgos.otId}</button>` : "<b>se cerró sin OT correctiva</b>"}</div>` : "";
+  const origen = o.origenOT ? `<div style="margin:12px 0;padding:10px 14px;border-radius:12px;background:var(--blue-bg);font-size:14px">Esta OT nació de los hallazgos de la <button type="button" class="btn sm" data-ver="${o.origenOT}">OT #${o.origenOT}</button></div>` : "";
+  dlg.style.width = "min(780px,96vw)";
+  dlg.innerHTML = `<form><div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap"><h2 style="margin:0">OT #${o.id} · ${esc(otPats(o).join(" + "))}</h2><div style="display:flex;gap:6px;flex-wrap:wrap">${tag(st[0], st[1])}${tag(o.tipo==="preventivo"?"Preventiva":"Correctiva", o.tipo==="preventivo"?"green":"red")}${tag(o.prioridad, PRIO_TAG[o.prioridad]||"gray")}${tag("Solo lectura","gray")}</div></div>
+    <div style="font-size:15px;margin:8px 0 12px">${esc(o.desc)}</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:6px">${dato("Responsable", esc(o.resp||"Sin responsable"))}${dato("Creada", fdate(o.creada))}${dato("Comprometida", o.vence ? fdate(o.vence) : "")}${dato("Cerrada", o.cerrada ? fdate(o.cerrada) : "")}${dato(o.equipos?"Km al generar":"Km al generar", !o.equipos && o.kmOT != null ? fkm(o.kmOT) : "")}${dato("Costo", o.costo != null ? fclp(o.costo) : "")}${dato("Checklist", pr.length ? `${pr.filter(i=>i.res).length}/${pr.length} respondidos` : "")}</div>
+    ${otAbierta(o) ? `<div class="sub" style="margin-top:8px">Esta OT sigue abierta: para trabajarla usa <b>Checklist</b> en su tarjeta.</div>` : ""}
+    ${hallazgo}${origen}
+    ${its.length ? `<div style="max-height:46vh;overflow:auto;border:1px solid var(--line);border-radius:12px;margin-top:10px">${filas}</div>` : `<div class="sub" style="margin-top:10px">Esta OT no tiene checklist.</div>`}
+    ${o.notas ? `<div style="margin-top:12px"><div style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)">Observación de la unidad</div><div style="white-space:pre-wrap">${esc(o.notas)}</div></div>` : ""}
+    <div class="btns"><button type="button" class="btn pri" data-x>Cerrar</button></div></form>`;
+  const fm = dlg.querySelector("form");
+  fm.querySelector("[data-x]").onclick = () => dlg.close();
+  fm.querySelectorAll("[data-ver]").forEach(b => b.onclick = () => { const x = byId(D.ots, b.dataset.ver); if (x) verOT(x); });
+  dlg.showModal();
+}
 /* ===== Hallazgos del checklist (alertas y fallos): al cerrar una OT hay que decidir qué hacer ===== */
 const hallazgosDe = o => (o.items || []).filter(it => it.res === "fallo" || it.res === "alerta").map(it => ({it}));
 const nHz = (hz, k) => hz.filter(x => x.it.res === k).length;
@@ -1409,6 +1438,7 @@ document.addEventListener("click", e => {
   else if (a === "close-ot"){ const o = byId(D.ots, id);
     if (o.items && o.items.some(i => i.tipo !== "texto" && !i.res) && !confirm("Esta OT tiene ítems del checklist sin responder. ¿Cerrar igual?")) return;
     cerrarOT(o); }
+  else if (a === "ver-ot"){ const o = byId(D.ots, id); if (o) verOT(o); }
   else if (a === "checklist"){ const o = byId(D.ots, id); if (o && otAbierta(o)) fChecklist(o); }
   else if (a === "gen-ot" || a === "gen-ot-arr"){ const c = camion(id), q = parDe(c); generarOTs(q ? (esTractoC(c) ? [id, q.pat] : [q.pat, id]) : [id]); }
   else if (a === "sel"){ const c = camion(id); if (b.checked){ S.sel.add(id); const q = parDe(c); if (q) S.sel.add(q.pat); } else S.sel.delete(id); render(); }
