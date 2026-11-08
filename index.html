@@ -156,6 +156,16 @@ dialog .btns{display:flex;gap:8px;justify-content:flex-end;margin-top:8px}
 .enter .ddraw{animation:drawd 1s .35s var(--ease) both}
 .enter .bars .t i,.enter .sbar i,.enter .stack i{transform-origin:left center;animation:growx .9s .4s var(--ease) both}
 .enter .msv rect{transform-box:fill-box;transform-origin:50% 100%;animation:growy .8s .45s var(--ease) both}
+.kc.otc{position:relative;cursor:pointer}
+.kebab{position:absolute;top:8px;right:8px;width:32px;height:32px;border-radius:10px;border:0;background:transparent;display:grid;place-items:center;cursor:pointer;color:var(--muted);transition:background .2s,color .2s}
+.kebab:hover,.kebab[aria-expanded="true"]{background:var(--surface-2);color:var(--navy)}
+.kebab svg{width:20px;height:20px;fill:currentColor}
+.pop{position:fixed;z-index:200;min-width:216px;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:6px;box-shadow:0 24px 54px -14px rgba(8,22,48,.5);animation:pop .16s var(--ease)}
+.pop button{display:flex;align-items:center;gap:12px;width:100%;border:0;background:transparent;text-align:left;padding:10px 12px;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;color:var(--ink);transition:background .15s}
+.pop button:hover{background:var(--surface-2)}
+.pop button svg{width:18px;height:18px;flex:none;stroke:var(--accent-2);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.pop button.danger{color:var(--red)}.pop button.danger svg{stroke:var(--red)}
+.pop hr{border:0;border-top:1px solid var(--line);margin:4px 6px}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
 </style>
 </head>
@@ -415,7 +425,7 @@ function migrar(s){
 function load(){ return EMPTY(); }   /* los datos reales llegan del servidor en iniciar() */
 let ROL = "admin", TOKEN = "", BASE_FIJA = "";
 const SOLO_ADMIN = new Set(["new-pauta","edit-pauta","del-pauta","ft-asignar","um-imp","um-apply","mecanicos","meta","imp-km","imp-apply","del-cam","del-ot","del-falla","del-gasto","demo","import"]);
-const SOLO_LECTURA = new Set(["tab","go","go-camiones","chip","hist","checklist","export","clave","salir","base","per","ver-ot"]);
+const SOLO_LECTURA = new Set(["tab","go","go-camiones","chip","hist","checklist","export","clave","salir","base","per","ver-ot","menu-ot","abrir-ot","imprimir-ot"]);
 const permitido = a => ROL === "admin" || (ROL === "editor" && !SOLO_ADMIN.has(a)) || (ROL === "lector" && SOLO_LECTURA.has(a));
 function aplicarRol(){ if (ROL === "admin") return; document.querySelectorAll("[data-act]").forEach(b => { if (!permitido(b.dataset.act)) b.style.display = "none"; }); }
 let VERSION = 0, ESTADO = "", EMAIL = "", GUARDANDO = false, PENDIENTE = false, TIMER = null;
@@ -899,7 +909,9 @@ function vTareas(){
   const all = D.camiones.map(c => ({c, p:prev(c)}));
   const cumple = st => f === "vencido" ? st === "vencido" : f === "proximo" ? st === "proximo" : (st === "vencido" || st === "proximo");
   const stPar = c => { const x = parDe(c); return x ? prev(x).st : null; };
-  const raices = all.filter(x => esRaiz(x.c) && cumple(x.p.st) && (match(x.c.pat, x.c.marca) || (q && x.c.par && match(x.c.par))));
+  /* ya tiene una OT abierta que cubre sus tareas vencidas o próximas: deja de estar pendiente */
+  const sinOT = ({c, p}) => !p.tareas.length || p.tareas.some(t => (t.st === "vencido" || t.st === "proximo") && !D.ots.some(o => otAbierta(o) && otKeys(o, c.pat).includes(t.key)));
+  const raices = all.filter(x => esRaiz(x.c) && cumple(x.p.st) && sinOT(x) && (match(x.c.pat, x.c.marca) || (q && x.c.par && match(x.c.par))));
   const ord = {vencido:0, proximo:1, ok:2, sin:3}, grupos = [];
   raices.sort((a,b) => ord[a.p.st]-ord[b.p.st] || (a.p.kmR??1e9)-(b.p.kmR??1e9)).forEach(x => {
     grupos.push(x); const sm = parDe(x.c); if (sm && esTractoC(x.c) && !esTractoC(sm)) grupos.push({c:sm, p:prev(sm)}); });
@@ -922,12 +934,12 @@ function vTareas(){
     const at = otAtrasada(o), st = ESTADOS_OT[o.estado], its = o.items || [], pr = its.filter(i => i.tipo !== "texto");
     const mover = o.estado === "abierta" ? btn("ot-estado", o.id, "Iniciar", "", "proceso") : o.estado === "proceso" ? btn("ot-estado", o.id, "A revisión", "", "revision") : o.estado === "revision" ? btn("ot-estado", o.id, "Volver a proceso", "", "proceso") : "";
     const acts = otAbierta(o) ? `${mover}${o.items?btn("checklist", o.id, "Checklist"):""}${btn("close-ot", o.id, "Cerrar")}${btn("edit-ot", o.id, "Editar")}${btn("del-ot", o.id, "Eliminar", "danger")}` : btn("ver-ot", o.id, "Ver detalle");
-    return `<div class="kc ${at?"flag":""}">
-      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><b style="color:var(--blue)">OT #${o.id}</b>${tag(st[0],st[1])}${tag(o.tipo==="preventivo"?"Preventiva":"Correctiva", o.tipo==="preventivo"?"green":"red")}${tag(o.prioridad, PRIO_TAG[o.prioridad]||"gray")}${at?tag("Atrasada","red"):""}</div>
+    return `<div class="kc otc ${at?"flag":""}" data-act="abrir-ot" data-id="${o.id}" title="${otAbierta(o)?"Abrir":"Ver detalle"}">
+      <button type="button" class="kebab" data-act="menu-ot" data-id="${o.id}" aria-label="Acciones de la OT" aria-expanded="false" title="Acciones"><svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="12" cy="19" r="1.9"/></svg></button>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding-right:34px"><b style="color:var(--blue)">OT #${o.id}</b>${tag(st[0],st[1])}${tag(o.tipo==="preventivo"?"Preventiva":"Correctiva", o.tipo==="preventivo"?"green":"red")}${tag(o.prioridad, PRIO_TAG[o.prioridad]||"gray")}${at?tag("Atrasada","red"):""}</div>
       <div>${otPats(o).map(p => `<span class="plate" style="margin-right:4px">${esc(p)}</span>`).join("")}</div>
       <div style="font-size:14px">${esc(o.desc)}</div>
-      <div class="ks">${o.resp?`<span>👤 ${esc(o.resp)}</span>`:`<span>Sin responsable</span>`}${o.vence&&otAbierta(o)?`<span>Comprometida ${fdate(o.vence)}</span>`:""}${o.cerrada?`<span>Cerrada ${fdate(o.cerrada)}</span>`:""}${o.costo!=null?`<span>${fclp(o.costo)}</span>`:""}${pr.length?`<span>Checklist ${pr.filter(i=>i.res).length}/${pr.length}</span>`:""}${its.some(i=>i.res==="fallo")?tag(its.filter(i=>i.res==="fallo").length+" fallo"+(its.filter(i=>i.res==="fallo").length>1?"s":""),"red"):""}${its.some(i=>i.res==="alerta")?tag(its.filter(i=>i.res==="alerta").length+" alerta"+(its.filter(i=>i.res==="alerta").length>1?"s":""),"amber"):""}${o.hallazgos&&o.hallazgos.otId?`<span>→ OT correctiva #${o.hallazgos.otId}</span>`:""}${o.hallazgos&&o.hallazgos.decision==="sin"?tag("Cerrada sin OT correctiva","red"):""}${o.origenOT?`<span>Origen: OT #${o.origenOT}</span>`:""}</div>
-      ${acts?`<div class="kact">${acts}</div>`:""}</div>`;
+      <div class="ks">${o.resp?`<span>👤 ${esc(o.resp)}</span>`:`<span>Sin responsable</span>`}${o.vence&&otAbierta(o)?`<span>Comprometida ${fdate(o.vence)}</span>`:""}${o.cerrada?`<span>Cerrada ${fdate(o.cerrada)}</span>`:""}${o.costo!=null?`<span>${fclp(o.costo)}</span>`:""}${pr.length?`<span>Checklist ${pr.filter(i=>i.res).length}/${pr.length}</span>`:""}${its.some(i=>i.res==="fallo")?tag(its.filter(i=>i.res==="fallo").length+" fallo"+(its.filter(i=>i.res==="fallo").length>1?"s":""),"red"):""}${its.some(i=>i.res==="alerta")?tag(its.filter(i=>i.res==="alerta").length+" alerta"+(its.filter(i=>i.res==="alerta").length>1?"s":""),"amber"):""}${o.hallazgos&&o.hallazgos.otId?`<span>→ OT correctiva #${o.hallazgos.otId}</span>`:""}${o.hallazgos&&o.hallazgos.decision==="sin"?tag("Cerrada sin OT correctiva","red"):""}${o.origenOT?`<span>Origen: OT #${o.origenOT}</span>`:""}</div></div>`;
   };
   const okOT = o => match(otPats(o).join(" "), o.desc, o.resp) && (f !== "atrasadas" || otAtrasada(o));
   const ots = D.ots.filter(okOT);
@@ -1180,6 +1192,101 @@ function generarOTs(pats){
   };
   dlg.showModal();
 }
+/* ===== Imprimir una OT: hoja A4 con los datos, el checklist por equipo y espacio para firmas ===== */
+function htmlOT(o){
+  const its = o.items || [], st = (ESTADOS_OT[o.estado] || [""])[0];
+  const RES = {apf:[["apf","Aprobó"],["alerta","Alerta"],["fallo","Falló"]], sino:[["si","Sí"],["no","No"],["na","N/A"]]};
+  const caja = (marcado) => marcado ? "☒" : "☐";
+  const fila = it => {
+    let r;
+    if (it.tipo === "texto") r = it.res ? esc(it.res) : '<span class="linea"></span>';
+    else r = (RES[it.tipo] || RES.apf).map(([v,l]) => `<span class="op${it.res===v?" on "+v:""}">${caja(it.res===v)} ${l}</span>`).join("");
+    return `<tr class="${it.res==="fallo"?"f":it.res==="alerta"?"a":""}"><td><b>${esc(it.sis)}</b><br>${esc(it.desc)}${it.otId?`<br><i>→ derivado a la OT #${it.otId}</i>`:""}</td><td class="r">${r}</td></tr>`;
+  };
+  let cuerpo = "", ant = null;
+  its.forEach(it => {
+    const clave = (it.eq || "") + "|" + (it.grupo || "");
+    if (!ant || ant.eq !== it.eq) cuerpo += `</tbody></table>${o.equipos && it.eq ? `<h3>Equipo ${esc(it.eq)}${(camion(it.eq)||{}).tipo ? " · " + esc(camion(it.eq).tipo) : ""}${(camion(it.eq)||{}).marca ? " · " + esc(camion(it.eq).marca) : ""}</h3>` : ""}<table><tbody>`;
+    if (!ant || (ant.eq || "") + "|" + (ant.grupo || "") !== clave) cuerpo += it.grupo ? `<tr class="g"><td colspan="2">${esc(it.grupo)}</td></tr>` : "";
+    cuerpo += fila(it); ant = it;
+  });
+  const hz = hallazgosDe(o);
+  const dato = (l, v) => `<div><span>${l}</span>${v ? esc(v) : "&nbsp;"}</div>`;
+  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>OT ${o.id}</title><style>
+@page{size:A4;margin:14mm 12mm}*{box-sizing:border-box}body{font:11.5px/1.4 "Segoe UI",Arial,sans-serif;color:#0e1c36;margin:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.top{display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid #14b8d4;padding-bottom:8px;margin-bottom:10px}
+.brand{font-size:19px;font-weight:800;letter-spacing:.14em;color:#0f2a52}.brand small{display:block;font-size:10px;letter-spacing:.08em;font-weight:500;color:#5d6e8c}
+.ot{text-align:right}.ot b{font-size:20px;color:#0f2a52}.ot div{font-size:11px;color:#5d6e8c}
+.est{display:inline-block;background:#e7eefd;color:#2457c5;border-radius:99px;padding:1px 9px;font-weight:700;font-size:10.5px}
+.desc{font-size:13px;font-weight:600;margin:6px 0 10px}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px}.grid div{border:1px solid #e2e8f2;border-radius:8px;padding:6px 8px;min-height:36px}.grid span{display:block;font-size:9px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#5d6e8c}
+.hz{border:1px solid #f3c37b;background:#fff3dc;border-radius:8px;padding:7px 10px;margin-bottom:10px}
+h3{margin:12px 0 4px;font-size:12.5px;background:#0f2a52;color:#fff;padding:5px 9px;border-radius:6px}
+table{width:100%;border-collapse:collapse;margin-bottom:6px}td{border-bottom:1px solid #e2e8f2;padding:5px 7px;vertical-align:top}td.r{white-space:nowrap;text-align:right;width:240px}
+tr.g td{background:#f1f5fb;font-weight:800;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:#5d6e8c}
+tr.f td{background:#fdecec}tr.a td{background:#fff3dc}tr{break-inside:avoid}
+.op{margin-left:10px;white-space:nowrap}.op.on{font-weight:800}.op.fallo{color:#c62828}.op.alerta{color:#b45f06}.op.apf,.op.si{color:#17803f}
+.linea{display:inline-block;width:210px;border-bottom:1px solid #8a97ad}
+.obs{margin-top:10px;border:1px solid #e2e8f2;border-radius:8px;padding:7px 9px;min-height:54px}.obs span{display:block;font-size:9px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#5d6e8c}
+.firmas{display:flex;gap:30px;margin-top:34px}.firmas div{flex:1;border-top:1px solid #0e1c36;padding-top:4px;text-align:center;font-size:10.5px;color:#5d6e8c}
+.pie{margin-top:14px;font-size:9.5px;color:#8a97ad;display:flex;justify-content:space-between}
+</style></head><body>
+<div class="top"><div class="brand">STANGE<small>Mantenimiento de flota</small></div><div class="ot"><b>Orden de trabajo #${o.id}</b><div><span class="est">${esc(st)}</span> · ${o.tipo==="preventivo"?"Preventiva":"Correctiva"} · Prioridad ${esc(o.prioridad||"—")}</div></div></div>
+<div class="desc">${esc(o.desc)}</div>
+<div class="grid">${dato("Equipos", otPats(o).join(" + "))}${dato("Responsable", o.resp)}${dato("Creada", o.creada ? fdate(o.creada) : "")}${dato("Comprometida", o.vence ? fdate(o.vence) : "")}${dato("Cerrada", o.cerrada ? fdate(o.cerrada) : "")}${dato("Km al generar", !o.equipos && o.kmOT != null ? fkm(o.kmOT) : "")}${dato("Origen", o.origenOT ? "OT #" + o.origenOT : "")}${dato("Costo", o.costo != null ? fclp(o.costo) : "")}</div>
+${hz.length ? `<div class="hz"><b>Hallazgos:</b> ${esc(txtHz(hz))}${o.hallazgos && o.hallazgos.otId ? " · OT correctiva #" + o.hallazgos.otId : ""}${o.hallazgos && o.hallazgos.decision === "sin" ? " · cerrada sin OT correctiva" : ""}</div>` : ""}
+${its.length ? cuerpo.replace(/^<\/tbody><\/table>/, "") + "</tbody></table>" : '<div class="sub">Esta OT no tiene checklist.</div>'}
+<div class="obs"><span>Observación de la unidad</span>${o.notas ? esc(o.notas).replace(/\n/g, "<br>") : ""}</div>
+<div class="firmas"><div>Mecánico responsable</div><div>Jefe de mantención</div><div>Recibe conforme</div></div>
+<div class="pie"><span>STANGE · Mantenimiento · OT #${o.id}</span><span>Impreso el ${new Date().toLocaleString("es-CL", {timeZone:"America/Santiago", day:"numeric", month:"numeric", year:"numeric", hour:"2-digit", minute:"2-digit", hour12:false})}</span></div>
+</body></html>`;
+}
+function imprimirOT(o){
+  if (!o) return;
+  const f = document.createElement("iframe"); f.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden";
+  document.body.appendChild(f);
+  const d = f.contentWindow.document; d.open(); d.write(htmlOT(o)); d.close();
+  setTimeout(() => { try{ f.contentWindow.focus(); f.contentWindow.print(); }catch(e){ alert("No se pudo abrir la impresión: " + e.message); } setTimeout(() => f.remove(), 3000); }, 350);
+}
+/* ===== Menú de tres puntos de una OT y apertura con un clic ===== */
+function quitarPop(){ const p = document.getElementById("pop"); if (p) p.remove(); document.querySelectorAll('.kebab[aria-expanded="true"]').forEach(k => k.setAttribute("aria-expanded", "false")); }
+function abrirMenuOT(btnEl, o){
+  if (!o) return;
+  const yaAbierto = document.getElementById("pop") && document.getElementById("pop").dataset.id === String(o.id); quitarPop(); if (yaAbierto) return;
+  const puede = a => typeof permitido === "function" ? permitido(a) : true;
+  const IC = {mov:'<circle cx="12" cy="12" r="10"/><polyline points="12 16 16 12 12 8"/><line x1="8" y1="12" x2="16" y2="12"/>',
+    chk:'<polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>',
+    ok:'<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>',
+    edit:'<path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>',
+    del:'<polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>',
+    ver:'<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>',
+    print:'<polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>'};
+  const it = (ic, txt, act, v, cls) => puede(act) ? `<button type="button" class="${cls||""}" data-act="${act}" data-id="${o.id}"${v?` data-v="${v}"`:""}><svg viewBox="0 0 24 24">${IC[ic]}</svg>${txt}</button>` : "";
+  let h;
+  if (!otAbierta(o)) h = it("ver", "Ver detalle", "ver-ot") + it("print", "Imprimir", "imprimir-ot");
+  else {
+    const mov = o.estado === "abierta" ? it("mov", "Iniciar trabajo", "ot-estado", "proceso") : o.estado === "proceso" ? it("mov", "Pasar a revisión", "ot-estado", "revision") : it("mov", "Volver a proceso", "ot-estado", "proceso");
+    h = mov + (o.items && o.items.length ? it("chk", "Checklist", "checklist") : "") + it("print", "Imprimir", "imprimir-ot") + it("ok", "Cerrar OT", "close-ot") + it("edit", "Editar", "edit-ot") + (puede("del-ot") ? "<hr>" + it("del", "Eliminar", "del-ot", "", "danger") : "");
+  }
+  if (!h.trim()) return;
+  const p = document.createElement("div"); p.id = "pop"; p.className = "pop"; p.dataset.id = o.id; p.innerHTML = h; document.body.appendChild(p);
+  btnEl.setAttribute("aria-expanded", "true");
+  const r = btnEl.getBoundingClientRect(), w = p.offsetWidth, hh = p.offsetHeight;
+  p.style.left = Math.max(8, Math.min(innerWidth - w - 8, r.right - w)) + "px";
+  p.style.top = (r.bottom + hh + 12 > innerHeight ? Math.max(8, r.top - hh - 6) : r.bottom + 6) + "px";
+}
+/** Un clic en cualquier parte de la OT la abre: finalizada → solo lectura; abierta → su checklist (o el formulario si no tiene) */
+function abrirOT(o){
+  if (!o) return;
+  const lector = typeof ROL !== "undefined" && ROL === "lector";
+  if (!otAbierta(o) || lector) verOT(o); else if (o.items && o.items.length) fChecklist(o); else fOT(o);
+}
+document.addEventListener("click", e => {   // el menú se cierra al hacer clic fuera, o después de elegir una opción
+  const dentro = e.target.closest("#pop"), kb = e.target.closest('[data-act="menu-ot"]');
+  if (!dentro && !kb) quitarPop(); else if (dentro && e.target.closest("button")) setTimeout(quitarPop, 0);
+}, true);
+document.addEventListener("keydown", e => { if (e.key === "Escape") quitarPop(); });
+window.addEventListener("scroll", quitarPop, true); window.addEventListener("resize", quitarPop);
 /* ===== Ver una OT (solo lectura): sirve para revisar qué se hizo sin poder modificarla ===== */
 function verOT(o){
   const RL = {si:"Sí", no:"No", na:"N/A", apf:"Aprobó", alerta:"Alerta", fallo:"Falló"}, RC = {si:"green", no:"gray", na:"gray", apf:"green", alerta:"amber", fallo:"red"};
@@ -1203,9 +1310,10 @@ function verOT(o){
     ${hallazgo}${origen}
     ${its.length ? `<div style="max-height:46vh;overflow:auto;border:1px solid var(--line);border-radius:12px;margin-top:10px">${filas}</div>` : `<div class="sub" style="margin-top:10px">Esta OT no tiene checklist.</div>`}
     ${o.notas ? `<div style="margin-top:12px"><div style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)">Observación de la unidad</div><div style="white-space:pre-wrap">${esc(o.notas)}</div></div>` : ""}
-    <div class="btns"><button type="button" class="btn pri" data-x>Cerrar</button></div></form>`;
+    <div class="btns"><button type="button" class="btn" data-print>Imprimir</button><button type="button" class="btn pri" data-x>Cerrar</button></div></form>`;
   const fm = dlg.querySelector("form");
   fm.querySelector("[data-x]").onclick = () => dlg.close();
+  fm.querySelector("[data-print]").onclick = () => imprimirOT(o);
   fm.querySelectorAll("[data-ver]").forEach(b => b.onclick = () => { const x = byId(D.ots, b.dataset.ver); if (x) verOT(x); });
   dlg.showModal();
 }
@@ -1438,6 +1546,9 @@ document.addEventListener("click", e => {
   else if (a === "close-ot"){ const o = byId(D.ots, id);
     if (o.items && o.items.some(i => i.tipo !== "texto" && !i.res) && !confirm("Esta OT tiene ítems del checklist sin responder. ¿Cerrar igual?")) return;
     cerrarOT(o); }
+  else if (a === "menu-ot"){ abrirMenuOT(b, byId(D.ots, id)); }
+  else if (a === "abrir-ot"){ if (!(window.getSelection && String(window.getSelection()).length)) abrirOT(byId(D.ots, id)); }
+  else if (a === "imprimir-ot"){ imprimirOT(byId(D.ots, id)); }
   else if (a === "ver-ot"){ const o = byId(D.ots, id); if (o) verOT(o); }
   else if (a === "checklist"){ const o = byId(D.ots, id); if (o && otAbierta(o)) fChecklist(o); }
   else if (a === "gen-ot" || a === "gen-ot-arr"){ const c = camion(id), q = parDe(c); generarOTs(q ? (esTractoC(c) ? [id, q.pat] : [q.pat, id]) : [id]); }
