@@ -292,7 +292,7 @@ const ESTANQUES = [
 const MECANICOS_INICIAL = ["Bernardo Neira","Guido Vera","Juan Carlos Gomez","Luis Bastias","Walter Parancan"];
 /* Terceros (externos): catálogo Terceros de Fracttal + los demás responsables externos de las OT */
 const TERCEROS_INICIAL = ["Arenado Felix Jayo","BBF","Bernardo Tapia","Casa del tubo del escape","Chile Parabrisas","DIFOR","DIMA service spa","Electronica Juan Carlos Barraza","Francisco Pérez","Franco Maldonado","Heraldo Silva","KAUFMANN","Kurt Schell","Luis Riquelme","Mauricio","Mecanica Toledo","Oscar Argel","Pablo Pacheco","Patricio Alarcon","Rodolfo Mendoza","SCANIA","SERMAIND","SOTEC","Taller Rodolfo Wandersleben","Temosur"];
-const CAMIONES_FRACTTAL = ["8236","8471","8815","409","8946","111","112"];
+const CAMIONES_FRACTTAL = ["8815","409","8946","111","112"];
 function crearEstanques(s){
   if (s.estV >= 1) return;
   s.camiones.forEach(c => { if (CAMIONES_FRACTTAL.includes(String(c.pat))) c.tipo = "Camión"; });
@@ -351,7 +351,7 @@ function enviarGuardado(){
   GUARDANDO = true;
   google.script.run
     .withSuccessHandler(r => { GUARDANDO = false;
-      if (r.ok){ VERSION = r.version; ESTADO = "Guardado "+hhmm(); pintarPie(); if (PENDIENTE){ PENDIENTE = false; save(); } }
+      if (r.ok){ VERSION = r.version; ULTIMO = {t:new Date().toISOString(), por:EMAIL}; ESTADO = "Guardado "+hhmm(); pintarPie(); if (PENDIENTE){ PENDIENTE = false; save(); } }
       else { PENDIENTE = false; alert("Otro administrador guardó cambios"+(r.por?` (${r.por})`:"")+" mientras editabas. Se recargan los datos del servidor; repite tu último cambio."); iniciar(); } })
     .withFailureHandler(e => { GUARDANDO = false; if (/vencida/i.test(e && e.message)){ TOKEN = ""; pantallaLogin("Tu sesión venció. Ingresa de nuevo (tu último cambio no se guardó)."); return; } ESTADO = "ERROR al guardar: "+(e && e.message ? e.message : e); pintarPie(); })
     .guardarDatos(TOKEN, VERSION, JSON.stringify(D));
@@ -379,7 +379,7 @@ function cargar(){
   document.getElementById("view").innerHTML = '<div class="empty">Cargando datos…</div>';
   google.script.run
     .withSuccessHandler(r => { VERSION = r.version; EMAIL = r.nombre || r.usuario || ""; ROL = r.rol || "lector"; BASE_FIJA = (r.base && r.base !== "Todas") ? r.base : "";
-      D = r.data ? migrar(JSON.parse(r.data)) : EMPTY(); ESTADO = ""; USUARIO = r.usuario || ""; ESTADO_ANT = estadoGuardado(); document.getElementById("base").style.display = ""; document.querySelector("footer").style.display = ""; render(); })
+      D = r.data ? migrar(JSON.parse(r.data)) : EMPTY(); ULTIMO = r.actualizado ? {t:r.actualizado, por:r.por || ""} : null; ESTADO = ""; USUARIO = r.usuario || ""; ESTADO_ANT = estadoGuardado(); document.getElementById("base").style.display = ""; document.querySelector("footer").style.display = ""; render(); })
     .withFailureHandler(e => { if (/vencida/i.test(e && e.message)){ TOKEN = ""; pantallaLogin("Tu sesión venció. Ingresa de nuevo."); } else document.getElementById("view").innerHTML = '<div class="empty">No se pudieron cargar los datos: '+esc(e && e.message ? e.message : e)+'</div>'; })
     .cargarDatos(TOKEN);
 }
@@ -484,7 +484,7 @@ function prev(c){
 
 /* ================= Estado de la vista ================= */
 const TABS = [["resumen","Resumen"],["camiones","Camiones"],["tareas","Detalle de tareas"],["medidores","Medidores"],["solicitudes","Solicitudes"],["pautas","Pautas"]];
-let ESTADO_ANT = null, USUARIO = "";
+let ESTADO_ANT = null, USUARIO = "", ULTIMO = null;   // ULTIMO: cuándo y quién guardó por última vez los datos (lo informa el servidor)
 let S = {sel:new Set(), tab:"resumen", q:"", base:"", f:{camiones:"todos", medidores:"todos", tareas:"todo", ots:"abiertas", prev:"pendientes"}};
 try{ const u = JSON.parse(localStorage.getItem(KEY+"_ui")||"{}"); if (TABS.some(x=>x[0]===u.tab)) S.tab = u.tab; if (typeof u.base === "string") S.base = u.base; }catch(e){}
 
@@ -631,6 +631,15 @@ const tag = (txt, cls) => `<span class="tag ${cls}">${esc(txt)}</span>`;
 const emptyMsg = (txt, btn) => `<div class="empty">${txt}${btn||""}</div>`;
 const demoBtns = `<br><button class="btn pri" data-act="demo">Cargar datos de ejemplo</button>`;
 
+/* Fecha y hora de la última actualización, para el Resumen */
+function fdt(iso){ try{ return new Date(iso).toLocaleString("es-CL", {timeZone:"America/Santiago", day:"numeric", month:"numeric", year:"numeric", hour:"2-digit", minute:"2-digit", hour12:false}); }catch(e){ return String(iso || ""); } }
+function lineaActualizacion(){
+  const k = D.kmAuto
+    ? `Km actualizados automáticamente desde la planilla de viajes: <b>${fdate(D.kmAuto.fecha)}${D.kmAuto.hora ? " " + esc(D.kmAuto.hora) : ""}</b> · ${D.kmAuto.actualizados} equipos${D.kmAuto.nuevos ? ` · ${D.kmAuto.nuevos} nuevos` : ""}`
+    : "Km: aún sin actualización automática";
+  const u = ULTIMO && ULTIMO.t ? `Último cambio en los datos: <b>${esc(fdt(ULTIMO.t))}</b>${ULTIMO.por ? " · " + esc(ULTIMO.por) : ""}` : "";
+  return `<div class="sub" style="margin-bottom:12px;display:flex;gap:6px 18px;flex-wrap:wrap"><span>🕒 ${k}</span>${u ? `<span>${u}</span>` : ""}</div>`;
+}
 function vResumen(){
   if (!D.camiones.length) return emptyMsg("Aún no hay datos. Agrega tus camiones en <b>Camiones</b> o prueba el tablero con datos de ejemplo.",
     `<br><button class="btn pri" data-act="go-camiones">Agregar camiones</button><button class="btn" data-act="demo">Cargar datos de ejemplo</button>`);
@@ -656,7 +665,7 @@ function vResumen(){
     ...pv.map(x => `<li>${tag("Preventivo vencido","red")} <b>${esc(x.c.pat)}</b> · ${x.p.kmR!=null&&x.p.kmR<=0?`pasado por ${fkm(-x.p.kmR)}`:`vencido hace ${-x.p.dR} días`}</li>`),
     ...atras.map(o => `<li>${tag("OT atrasada","red")} <b>${esc(o.pat)}</b> · ${esc(o.desc)} <span style="color:var(--muted)">(comprometida ${fdate(o.vence)})</span></li>`),
   ];
-  return `<section class="kpis">
+  return lineaActualizacion() + `<section class="kpis">
     <button class="kpi ${det.length?"red":""}" data-act="go" data-tab="camiones" data-f="detenidos"><span class="l">Camiones detenidos hoy</span><span class="n">${det.length}</span><span class="s">de ${D.camiones.length} en flota</span></button>
     <button class="kpi" data-act="go" data-tab="ots" data-f="abiertas"><span class="l">OTs abiertas</span><span class="n">${abiertas.length}</span><span class="s">abiertas, en proceso o revisión</span></button>
     <button class="kpi ${atras.length?"red":""}" data-act="go" data-tab="ots" data-f="atrasadas"><span class="l">OTs atrasadas</span><span class="n">${atras.length}</span><span class="s">pasaron su fecha comprometida</span></button>
@@ -685,7 +694,7 @@ function vCamiones(){
   const f = S.f.camiones;
   const list = all.filter(c => (f==="todos" || (f==="detenidos" ? c.estado!=="operativo" : c.estado===f)) && (match(c.pat, c.marca) || (S.q.trim() && c.par && match(c.par))));
   let h = `<div class="chips" style="justify-content:space-between"><span style="display:flex;gap:8px;flex-wrap:wrap">${[["todos","Todos",all.length],["operativo","Operativos",all.filter(c=>c.estado==="operativo").length],["detenidos","Detenidos o en taller",all.filter(c=>c.estado!=="operativo").length]].map(([k,l,n]) => `<button class="chip" data-act="chip" data-key="camiones" data-v="${k}" aria-pressed="${f===k}">${l} · ${n}</button>`).join("")}</span><span style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn pri" data-act="new-cam">+ Nuevo camión</button></span></div>`;
-  if (D.kmAuto) h = `<div class="sub" style="margin-bottom:8px">Km actualizados automáticamente desde la planilla de viajes el ${fdate(D.kmAuto.fecha)} · ${D.kmAuto.actualizados} equipos${D.kmAuto.nuevos?` · ${D.kmAuto.nuevos} equipos nuevos`:""}</div>` + h;
+  if (D.kmAuto) h = `<div class="sub" style="margin-bottom:8px">Km actualizados automáticamente desde la planilla de viajes el ${fdate(D.kmAuto.fecha)}${D.kmAuto.hora?" "+esc(D.kmAuto.hora):""} · ${D.kmAuto.actualizados} equipos${D.kmAuto.nuevos?` · ${D.kmAuto.nuevos} equipos nuevos`:""}</div>` + h;
   if (!all.length) return h + emptyMsg("Sin camiones registrados.", demoBtns);
   if (!list.length) return h + emptyMsg("Ningún camión coincide.");
   const orden = []; list.slice().sort((a,b)=>a.pat.localeCompare(b.pat)).forEach(c => {
