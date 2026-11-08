@@ -12,13 +12,13 @@
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;font-variant-numeric:tabular-nums}
 button,input,select,textarea{font:inherit;color:inherit}
-header{background:var(--surface);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:40}
+header{background:var(--surface);border-bottom:1px solid var(--line)}
 .wrap{max-width:1100px;margin:0 auto;padding:16px}
 .brand{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
 .brand b{font-size:20px;letter-spacing:.08em;color:var(--navy)}
 h1{margin:0;font-size:20px}
 .sub{color:var(--muted);font-size:13px;margin-top:2px}
-.bar{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-bottom:6px;padding:10px 0;position:sticky;top:var(--hh,0px);z-index:30;background:var(--bg)}
+.bar{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-bottom:6px;padding:10px 0;position:sticky;top:0;z-index:30;background:var(--bg)}
 .tabs{display:flex;background:var(--surface-2);border-radius:10px;padding:4px;gap:4px;overflow-x:auto;max-width:100%}
 .tab{border:0;background:transparent;border-radius:7px;padding:8px 14px;font-weight:600;cursor:pointer;white-space:nowrap;display:inline-flex;gap:8px;align-items:center}
 .tab .c{font-size:12px;background:var(--line);border-radius:999px;padding:0 7px}
@@ -67,7 +67,18 @@ dialog label{display:block;font-size:13px;color:var(--muted);margin-bottom:10px}
 dialog input,dialog select,dialog textarea{display:block;width:100%;margin-top:3px;border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:8px 10px}
 dialog label.chk{display:flex;gap:8px;align-items:center;color:var(--ink)}dialog label.chk input{width:auto;margin:0}
 dialog .btns{display:flex;gap:8px;justify-content:flex-end;margin-top:6px}
-.stk{position:sticky;top:calc(var(--hh,0px) + var(--bh,0px));z-index:20;background:var(--bg);padding:6px 0 4px}
+.stk{position:sticky;top:var(--bh,0px);z-index:20;background:var(--bg);padding:6px 0 4px}
+.dg{display:grid;gap:12px;margin-bottom:12px}
+.dg.t{grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}
+.dg.c3{grid-template-columns:repeat(auto-fit,minmax(310px,1fr))}
+.dcard{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px;display:grid;gap:8px;align-content:start;min-width:0}
+.dcard h3{margin:0;font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+.dcard .big{font-size:36px;font-weight:800;line-height:1.05}
+.dcard .sm{font-size:13px;color:var(--muted)}
+.gsv{width:100%;max-width:220px;margin:0 auto}.dsv{width:100%;max-width:150px;margin:0 auto}.msv{width:100%}
+.dleg{display:grid;gap:4px;font-size:13px}.dleg .k{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px}
+.dtab{width:100%;border-collapse:collapse;font-size:13px}.dtab td,.dtab th{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left}.dtab th{color:var(--muted);font-weight:600;font-size:12px}
+.sbar{display:flex;height:12px;border-radius:6px;overflow:hidden;background:var(--line)}.sbar i{display:block;height:100%}
 .mgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:12px}
 .kan{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;align-items:start;padding-bottom:8px}
 .kcol{background:var(--surface-2);border-radius:14px;padding:10px;min-width:0}
@@ -337,7 +348,7 @@ function migrar(s){
 }
 function load(){ return EMPTY(); }   /* los datos reales llegan del servidor en iniciar() */
 let ROL = "admin", TOKEN = "", BASE_FIJA = "";
-const SOLO_ADMIN = new Set(["new-pauta","edit-pauta","del-pauta","ft-asignar","um-imp","um-apply","mecanicos","imp-km","imp-apply","del-cam","del-ot","del-falla","del-gasto","demo","import"]);
+const SOLO_ADMIN = new Set(["new-pauta","edit-pauta","del-pauta","ft-asignar","um-imp","um-apply","mecanicos","meta","imp-km","imp-apply","del-cam","del-ot","del-falla","del-gasto","demo","import"]);
 const SOLO_LECTURA = new Set(["tab","go","go-camiones","chip","hist","checklist","export","clave","salir"]);
 const permitido = a => ROL === "admin" || (ROL === "editor" && !SOLO_ADMIN.has(a)) || (ROL === "lector" && SOLO_LECTURA.has(a));
 function aplicarRol(){ if (ROL === "admin") return; document.querySelectorAll("[data-act]").forEach(b => { if (!permitido(b.dataset.act)) b.style.display = "none"; }); }
@@ -640,48 +651,118 @@ function lineaActualizacion(){
   const u = ULTIMO && ULTIMO.t ? `Último cambio en los datos: <b>${esc(fdt(ULTIMO.t))}</b>${ULTIMO.por ? " · " + esc(ULTIMO.por) : ""}` : "";
   return `<div class="sub" style="margin-bottom:12px;display:flex;gap:6px 18px;flex-wrap:wrap"><span>🕒 ${k}</span>${u ? `<span>${u}</span>` : ""}</div>`;
 }
+/* ===== Resumen: panel de indicadores ===== */
+const svgGauge = (pct, color) => { const p = pct == null ? 0 : Math.max(0, Math.min(100, pct));
+  return `<svg viewBox="0 0 120 72" class="gsv"><path d="M10 62 A50 50 0 0 1 110 62" fill="none" stroke="var(--line)" stroke-width="14" stroke-linecap="round" pathLength="100"/>${p>0?`<path d="M10 62 A50 50 0 0 1 110 62" fill="none" stroke="${color}" stroke-width="14" stroke-linecap="round" pathLength="100" stroke-dasharray="${p} 100"/>`:""}<text x="60" y="56" text-anchor="middle" style="font-size:24px;font-weight:800;fill:var(--ink)">${pct==null?"—":Math.round(pct)+"%"}</text></svg>`; };
+const svgDonut = (segs, centro, sub) => { const tot = segs.reduce((a,x) => a + x.n, 0) || 1; let cum = 0;
+  const arcs = segs.filter(x => x.n > 0).map(x => { const l = x.n * 100 / tot, r = `<circle cx="21" cy="21" r="15.9155" fill="none" stroke="${x.c}" stroke-width="6" stroke-dasharray="${l} ${100-l}" stroke-dashoffset="${25-cum}"/>`; cum += l; return r; }).join("");
+  return `<svg viewBox="0 0 42 42" class="dsv"><circle cx="21" cy="21" r="15.9155" fill="none" stroke="var(--line)" stroke-width="6"/>${arcs}<text x="21" y="22.6" text-anchor="middle" style="font-size:8px;font-weight:800;fill:var(--ink)">${centro}</text>${sub?`<text x="21" y="28" text-anchor="middle" style="font-size:3.3px;fill:var(--muted)">${sub}</text>`:""}</svg>`; };
+const svgMeses = meses => { const mx = Math.max(1, ...meses.flatMap(m => [m.c, m.f])), H = 100, bw = 16;
+  return `<svg viewBox="0 0 300 ${H+38}" class="msv">${meses.map((m,i) => { const x = 10 + i*48, h1 = m.c*H/mx, h2 = m.f*H/mx;
+    return `<g><rect x="${x}" y="${22+H-h1}" width="${bw}" height="${h1}" rx="2" fill="var(--blue)"><title>${m.l}: ${m.c} creadas</title></rect><rect x="${x+bw+3}" y="${22+H-h2}" width="${bw}" height="${h2}" rx="2" fill="var(--green)"><title>${m.l}: ${m.f} cerradas</title></rect>
+      ${m.c?`<text x="${x+bw/2}" y="${18+H-h1}" text-anchor="middle" style="font-size:12px;fill:var(--ink)">${m.c}</text>`:""}${m.f?`<text x="${x+bw+3+bw/2}" y="${18+H-h2}" text-anchor="middle" style="font-size:12px;fill:var(--ink)">${m.f}</text>`:""}
+      <text x="${x+bw+1.5}" y="${H+38}" text-anchor="middle" style="font-size:13px;fill:var(--muted)">${m.l}</text></g>`; }).join("")}</svg>`; };
+const svgCumpl = (meses, meta) => { const H = 100, bw = 26;
+  return `<svg viewBox="0 0 300 ${H+38}" class="msv">${meses.map((m,i) => { const x = 10 + i*48, hh = m.pc == null ? 0 : m.pc*H/100;
+    return `<g><rect x="${x+4}" y="${22+H-hh}" width="${bw}" height="${hh}" rx="2" fill="${m.pc==null?"var(--line)":m.pc>=meta?"var(--green)":"var(--amber)"}"><title>${m.l}: ${m.pc==null?"sin OTs cerradas":Math.round(m.pc)+"% a tiempo ("+m.t+" cerradas)"}</title></rect>
+      ${m.pc!=null?`<text x="${x+4+bw/2}" y="${18+H-hh}" text-anchor="middle" style="font-size:12px;fill:var(--ink)">${Math.round(m.pc)}%</text>`:""}
+      <text x="${x+4+bw/2}" y="${H+38}" text-anchor="middle" style="font-size:13px;fill:var(--muted)">${m.l}</text></g>`; }).join("")}
+    <line x1="4" x2="296" y1="${22+H-meta*H/100}" y2="${22+H-meta*H/100}" stroke="var(--red)" stroke-width="1.5" stroke-dasharray="4 3"/><text x="296" y="${18+H-meta*H/100}" text-anchor="end" style="font-size:11px;fill:var(--red)">meta ${meta}%</text></svg>`; };
+const svgGrupo = (datos, series, mx) => { const H = 100, bw = 11, gw = 56;
+  return `<svg viewBox="0 0 300 ${H+40}" class="msv">${datos.map((g,i) => { const x = 8 + i*gw;
+    return `<g>${g.v.map((n,j) => { const hh = n*H/mx; return `<rect x="${x+j*(bw+2)}" y="${22+H-hh}" width="${bw}" height="${hh}" rx="2" fill="${series[j][1]}"><title>${g.t} · ${series[j][0]}: ${n}</title></rect>${n?`<text x="${x+j*(bw+2)+bw/2}" y="${18+H-hh}" text-anchor="middle" style="font-size:11px;fill:var(--ink)">${n}</text>`:""}`; }).join("")}
+      <text x="${x+19}" y="${H+36}" text-anchor="middle" style="font-size:11px;fill:var(--muted)">${g.t==="Tractocamión"?"Tracto":g.t==="Semirremolque"?"Semi":g.t}</text></g>`; }).join("")}</svg>`; };
 function vResumen(){
   if (!D.camiones.length) return emptyMsg("Aún no hay datos. Agrega tus camiones en <b>Camiones</b> o prueba el tablero con datos de ejemplo.",
     `<br><button class="btn pri" data-act="go-camiones">Agregar camiones</button><button class="btn" data-act="demo">Cargar datos de ejemplo</button>`);
-  const h = hoy(), d30 = addDays(h,-30);
+  const h = hoy(), d30 = addDays(h,-30), d90 = addDays(h,-90), pct = (a,b) => b ? a*100/b : null;
+  const PER = S.per || "30"; let desde = "0000-00-00", hasta = "9999-99-99", perTxt = "todo el historial";
+  if (PER === "30"){ desde = d30; hasta = h; perTxt = "últimos 30 días"; }
+  else if (PER === "90"){ desde = d90; hasta = h; perTxt = "últimos 90 días"; }
+  else if (PER === "mes"){ desde = h.slice(0,7) + "-01"; hasta = h; perTxt = "este mes"; }
+  else if (PER === "mes-1"){ const dd = new Date(); dd.setDate(1); dd.setMonth(dd.getMonth() - 1); desde = iso(dd); hasta = iso(new Date(dd.getFullYear(), dd.getMonth() + 1, 0)); perTxt = MESES[dd.getMonth()] + " " + dd.getFullYear(); }
+  const enPer = f => !!f && f >= desde && f <= hasta, META = D.meta || 80;
+  const raices = D.camiones.filter(esRaiz).map(c => ({c, p:prev(c)}));
+  const n = k => raices.filter(x => x.p.st === k).length, nOk = n("ok"), nPx = n("proximo"), nVc = n("vencido"), nSin = n("sin");
+  const conPlan = nOk + nPx + nVc;
   const det = D.camiones.filter(c => c.estado !== "operativo");
   const abiertas = D.ots.filter(otAbierta), atras = D.ots.filter(otAtrasada);
-  const rec = D.ots.filter(o => o.creada >= d30);
-  const cerr = rec.filter(o => o.estado === "cerrada").length;
-  const cumpl = rec.length ? Math.round(cerr*1000/rec.length)/10 : null;
-  const plan = rec.filter(o => o.tipo === "preventivo").length, noPlan = rec.length - plan;
-  const pv = D.camiones.filter(esRaiz).map(c => ({c, p:prev(c)})).filter(x => x.p.st === "vencido");
-  const pp = D.camiones.filter(esRaiz).map(c => ({c, p:prev(c)})).filter(x => x.p.st === "proximo");
-  const mes = h.slice(0,7);
-  const gasto = D.gastos.filter(g => g.fecha.startsWith(mes)).reduce((a,g)=>a+(g.monto||0),0) + D.ots.filter(o => o.cerrada && o.cerrada.startsWith(mes)).reduce((a,o)=>a+(o.costo||0),0);
-  const pr = PRIO.map(p => [p, abiertas.filter(o => o.prioridad === p).length]); const mx = Math.max(1, ...pr.map(x=>x[1]));
-  const pPlan = rec.length ? Math.round(plan*100/rec.length) : 0;
-
-  const nuevasObs = D.fallas.filter(x => x.nueva && !x.otId);
+  const cerr30 = D.ots.filter(o => o.estado === "cerrada" && enPer(o.cerrada));
+  const aTiempo = cerr30.filter(o => !o.vence || o.cerrada <= o.vence).length;
+  const cerr90 = D.ots.filter(o => o.estado === "cerrada" && o.creada && enPer(o.cerrada));
+  const mttr = cerr90.length ? cerr90.reduce((a,o) => a + Math.max(0, diff(o.creada, o.cerrada)), 0) / cerr90.length : null;
+  const nuevasObs = D.fallas.filter(x => x.ext && x.nueva && !x.otId);
+  const rec = D.ots.filter(o => enPer(o.creada)), plan = rec.filter(o => o.tipo === "preventivo").length, noPlan = rec.length - plan;
+  const col = {ok:"var(--green)", proximo:"var(--amber)", vencido:"var(--red)", sin:"var(--muted)"};
+  const cumplPlan = pct(nOk, conPlan);
+  // OTs por mes (últimos 6)
+  const meses = []; for (let i = 5; i >= 0; i--){ const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - i); const k = iso(d).slice(0,7);
+    meses.push({k, l:MESES[d.getMonth()], c:D.ots.filter(o => (o.creada||"").startsWith(k)).length, f:D.ots.filter(o => o.estado === "cerrada" && (o.cerrada||"").startsWith(k)).length}); }
+  /* cumplimiento por mes: % de OTs cerradas a tiempo en cada mes */
+  meses.forEach(m => { const c = D.ots.filter(o => o.estado === "cerrada" && (o.cerrada||"").startsWith(m.k)); m.t = c.length; m.pc = c.length ? c.filter(o => !o.vence || o.cerrada <= o.vence).length * 100 / c.length : null; });
+  /* OTs del período por tipo de equipo y prioridad */
+  const TIPOS_G = ["Tractocamión","Camión","Semirremolque","Estanque","Otro"], PRI_G = [["Alta","var(--red)",p => p==="Muy alta"||p==="Alta"],["Media","var(--amber)",p => p==="Media"],["Baja","var(--green)",p => p==="Baja"]];
+  const tipoOT = o => { const t = (camion(o.pat)||{}).tipo; return TIPOS_G.includes(t) ? t : "Otro"; };
+  const porEq = TIPOS_G.map(t => ({t, v:PRI_G.map(([,,f]) => rec.filter(o => tipoOT(o) === t && f(o.prioridad)).length)}));
+  const mxG = Math.max(1, ...porEq.flatMap(x => x.v));
+  /* OTs cerradas por responsable */
+  const porResp = {}; cerr90.forEach(o => { const r = o.resp || "Sin responsable"; porResp[r] = (porResp[r]||0) + 1; });
+  const resp = Object.entries(porResp).sort((a,b) => b[1]-a[1]).slice(0,6), mxR = Math.max(1, ...resp.map(x => x[1]));
+  // estados de las OT
+  const eo = [["abierta","Abiertas"],["proceso","En proceso"],["revision","En revisión"],["cerrada","Finalizadas (período)"]].map(([k,l]) => [l, k === "cerrada" ? cerr30.length : D.ots.filter(o => o.estado === k).length]);
+  const mxE = Math.max(1, ...eo.map(x => x[1]));
+  const pr = PRIO.map(p => [p, abiertas.filter(o => o.prioridad === p).length]), mxP = Math.max(1, ...pr.map(x => x[1]));
+  // por base
+  const basesLista = [...new Set([...BASES_FLOTA, ...D.camiones.map(c => c.base).filter(Boolean)])];
+  const porBase = basesLista.map(b => { const l = raices.filter(x => x.c.base === b); return {b, tot:l.length, ok:l.filter(x=>x.p.st==="ok").length, px:l.filter(x=>x.p.st==="proximo").length, vc:l.filter(x=>x.p.st==="vencido").length, sin:l.filter(x=>x.p.st==="sin").length}; }).filter(x => x.tot);
+  // próximas mantenciones
+  const corto = t => t.replace(/^MANTENIMIENTO PROGRAMADO\s*/i,"Programado ").replace(/^MANTENCIÓN\s*/i,"");
+  const prox = raices.filter(x => x.p.kmR != null && x.p.st !== "sin").sort((a,b) => a.p.kmR - b.p.kmR).slice(0,10).map(x => {
+    const t = x.p.tareas.filter(t => t.st !== "sinreg").sort((a,b) => a.kmR - b.kmR)[0];
+    return `<tr><td><b>${esc(x.c.pat)}</b></td><td>${esc(x.c.marca||x.c.tipo||"")}</td><td>${esc(x.c.base||"")}</td><td>${t?esc(corto(t.tarea.nombre)):"Mantención"}</td><td style="text-align:right">${x.p.kmR<=0?`pasada por ${fkm(-x.p.kmR)}`:`faltan ${fkm(x.p.kmR)}`}</td><td>${tag(x.p.st==="vencido"?"Vencido":x.p.st==="proximo"?"Próximo":"Al día", x.p.st==="vencido"?"red":x.p.st==="proximo"?"amber":"green")}</td></tr>`; }).join("");
   const alertas = [
-    ...nuevasObs.map(x => `<li>${tag("Observación nueva","blue")} <b>${esc(x.pat)}</b> · ${esc(x.desc)} ${x.opera==="No"?tag("No puede operar","red"):""} <button class="btn sm" data-act="go" data-tab="solicitudes">Ver</button></li>`),
+    ...nuevasObs.map(x => `<li>${tag("Solicitud nueva","blue")} <b>${esc(x.pat)}</b> · ${esc(x.desc)} ${x.opera==="No"?tag("No puede operar","red"):""} <button class="btn sm" data-act="go" data-tab="solicitudes">Ver</button></li>`),
     ...det.map(c => `<li>${tag(ESTADOS_CAM[c.estado][0], ESTADOS_CAM[c.estado][1])} <b>${esc(c.pat)}</b> ${esc(c.marca||"")}</li>`),
-    ...pp.map(x => `<li>${tag("Próximo a mantención","amber")} <b>${esc(x.c.pat)}</b> · faltan ${fkm(x.p.kmR)}</li>`),
-    ...pv.map(x => `<li>${tag("Preventivo vencido","red")} <b>${esc(x.c.pat)}</b> · ${x.p.kmR!=null&&x.p.kmR<=0?`pasado por ${fkm(-x.p.kmR)}`:`vencido hace ${-x.p.dR} días`}</li>`),
-    ...atras.map(o => `<li>${tag("OT atrasada","red")} <b>${esc(o.pat)}</b> · ${esc(o.desc)} <span style="color:var(--muted)">(comprometida ${fdate(o.vence)})</span></li>`),
+    ...atras.map(o => `<li>${tag("OT atrasada","red")} <b>${esc(otPats(o).join(" + "))}</b> · ${esc(o.desc)} <span style="color:var(--muted)">(comprometida ${fdate(o.vence)})</span></li>`),
   ];
-  return lineaActualizacion() + `<section class="kpis">
-    <button class="kpi ${det.length?"red":""}" data-act="go" data-tab="camiones" data-f="detenidos"><span class="l">Camiones detenidos hoy</span><span class="n">${det.length}</span><span class="s">de ${D.camiones.length} en flota</span></button>
-    <button class="kpi" data-act="go" data-tab="ots" data-f="abiertas"><span class="l">OTs abiertas</span><span class="n">${abiertas.length}</span><span class="s">abiertas, en proceso o revisión</span></button>
-    <button class="kpi ${atras.length?"red":""}" data-act="go" data-tab="ots" data-f="atrasadas"><span class="l">OTs atrasadas</span><span class="n">${atras.length}</span><span class="s">pasaron su fecha comprometida</span></button>
-    <button class="kpi ${cumpl!=null&&cumpl>=90?"green":cumpl!=null?"amber":""}" data-act="go" data-tab="ots" data-f="todas"><span class="l">Cumplimiento 30 días</span><span class="n">${cumpl==null?"—":cumpl.toString().replace(".",",")+"%"}</span><span class="s">${cerr} de ${rec.length} OTs cerradas</span></button>
-    <button class="kpi ${pp.length?"amber":""}" data-act="go" data-tab="prev" data-f="proximo"><span class="l">Próximos a mantención</span><span class="n">${pp.length}</span><span class="s">a menos de 1.000 km</span></button>
-    <button class="kpi ${pv.length?"red":""}" data-act="go" data-tab="prev" data-f="vencido"><span class="l">Preventivos vencidos</span><span class="n">${pv.length}</span><span class="s">por km o por fecha</span></button>
-  </section>
-  <div class="grid2">
-    <div class="panel"><h3>Planificado vs no planificado (30 días)</h3>
-      ${rec.length ? `<div class="stack"><i style="width:${pPlan}%;background:var(--green)"></i><i style="width:${100-pPlan}%;background:var(--red)"></i></div>
-      <div class="legend"><span><span class="dot" style="background:var(--green)"></span>Preventivas ${pPlan}% (${plan})</span><span><span class="dot" style="background:var(--red)"></span>Correctivas ${100-pPlan}% (${noPlan})</span></div>` : `<div class="sub">Sin órdenes en los últimos 30 días.</div>`}
-    </div>
-    <div class="panel"><h3>OTs abiertas por prioridad</h3><div class="bars">${pr.map(([p,n]) => `<div class="b"><span>${p}</span><span class="t"><i style="width:${n*100/mx}%"></i></span><b>${n}</b></div>`).join("")}</div></div>
+  const leg = (c, t) => `<div><span class="k" style="background:${c}"></span>${t}</div>`;
+  const enProc = D.ots.filter(o => o.estado === "proceso" || o.estado === "revision").length;
+  const selPer = `<select id="per" class="search" style="max-width:190px;flex:0 1 190px" aria-label="Período">${[["30","Últimos 30 días"],["90","Últimos 90 días"],["mes","Este mes"],["mes-1","Mes pasado"],["todo","Todo el historial"]].map(([k,l]) => `<option value="${k}"${PER===k?" selected":""}>${l}</option>`).join("")}</select>`;
+  return `<div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:flex-start">${lineaActualizacion()}<label style="font-size:12px;color:var(--muted);display:grid;gap:3px">Período del panel${selPer}</label></div>
+  <div class="dg t">
+    <div class="dcard" style="text-align:center"><h3>OTs cerradas</h3><div class="big">${cerr30.length}</div><div class="sm">${perTxt}</div></div>
+    <div class="dcard" style="text-align:center"><h3>OTs en proceso</h3><div class="big">${enProc}</div><div class="sm">en proceso o en revisión</div></div>
+    <div class="dcard" style="text-align:center"><h3>OTs abiertas</h3><div class="big">${abiertas.length}</div><div class="sm">abiertas, hoy</div></div>
+    <div class="dcard" style="text-align:center"><h3>OTs creadas</h3><div class="big">${rec.length}</div><div class="sm">${perTxt}</div></div>
+    <div class="dcard" style="text-align:center"><h3>Solicitudes nuevas</h3><div class="big">${nuevasObs.length}</div><div class="sm">de conductores, sin OT</div></div>
   </div>
-  <div class="panel"><h3>Requiere atención ${alertas.length?`· ${alertas.length}`:""}</h3>
-    ${alertas.length ? `<ul style="margin:0;padding-left:18px;display:grid;gap:6px">${alertas.join("")}</ul>` : `<div class="sub">Todo al día. Sin camiones detenidos, preventivos vencidos ni órdenes atrasadas.</div>`}
+  <div class="dg t">
+    <div class="dcard"><h3>Cumplimiento del plan</h3>${svgGauge(cumplPlan, cumplPlan==null?"var(--muted)":cumplPlan>=90?"var(--green)":cumplPlan>=70?"var(--amber)":"var(--red)")}<div class="sm" style="text-align:center">${nOk} de ${conPlan} equipos al día</div></div>
+    <div class="dcard"><h3>OTs atrasadas</h3>${svgDonut([{n:atras.length,c:"var(--red)"},{n:Math.max(0,abiertas.length-atras.length),c:"var(--blue)"}], atras.length, "de "+abiertas.length+" abiertas")}<div class="sm" style="text-align:center">pasaron su fecha comprometida</div></div>
+    <div class="dcard"><h3>OTs a tiempo · ${perTxt}</h3>${svgGauge(pct(aTiempo, cerr30.length), pct(aTiempo,cerr30.length)==null?"var(--muted)":"var(--green)")}<div class="sm" style="text-align:center">${aTiempo} de ${cerr30.length} cerradas a tiempo</div></div>
+    <div class="dcard" style="text-align:center"><h3>Tiempo medio de reparación</h3><div class="big">${mttr==null?"—":(Math.round(mttr*10)/10).toString().replace(".",",")}</div><div class="sm">días, de creada a cerrada · ${perTxt}</div></div>
+  </div>
+  <section class="kpis">
+    <button class="kpi ${det.length?"red":""}" data-act="go" data-tab="camiones" data-f="detenidos"><span class="l">Equipos detenidos hoy</span><span class="n">${det.length}</span><span class="s">de ${D.camiones.length} en flota</span></button>
+    <button class="kpi ${nPx?"amber":""}" data-act="go" data-tab="prev" data-f="proximo"><span class="l">Próximos a mantención</span><span class="n">${nPx}</span><span class="s">a menos de 1.000 km</span></button>
+    <button class="kpi ${nVc?"red":""}" data-act="go" data-tab="prev" data-f="vencido"><span class="l">Preventivos vencidos</span><span class="n">${nVc}</span><span class="s">por km o por fecha</span></button>
+  </section>
+  <div class="dg c3">
+    <div class="dcard"><h3>Estado de la flota</h3><div style="display:grid;grid-template-columns:130px 1fr;gap:10px;align-items:center">${svgDonut([{n:nOk,c:col.ok},{n:nPx,c:col.proximo},{n:nVc,c:col.vencido},{n:nSin,c:col.sin}], raices.length, "unidades")}<div class="dleg">${leg(col.ok,"Al día · <b>"+nOk+"</b>")}${leg(col.proximo,"Próximos · <b>"+nPx+"</b>")}${leg(col.vencido,"Vencidos · <b>"+nVc+"</b>")}${leg(col.sin,"Sin plan · <b>"+nSin+"</b>")}</div></div><div class="sm">Cada camión o tracto cuenta con su semi o estanque.</div></div>
+    <div class="dcard"><h3>Estado por base</h3>${porBase.map(x => `<div><div style="display:flex;justify-content:space-between;font-size:13px"><b>${esc(x.b)}</b><span>${x.tot} unidades${x.vc?` · <span style="color:var(--red)">${x.vc} vencidas</span>`:""}${x.px?` · <span style="color:var(--amber)">${x.px} próximas</span>`:""}</span></div><div class="sbar"><i style="width:${x.ok*100/x.tot}%;background:${col.ok}"></i><i style="width:${x.px*100/x.tot}%;background:${col.proximo}"></i><i style="width:${x.vc*100/x.tot}%;background:${col.vencido}"></i><i style="width:${x.sin*100/x.tot}%;background:${col.sin}"></i></div></div>`).join("") || `<div class="sm">Sin equipos con base.</div>`}</div>
+    <div class="dcard"><h3>Tipo de mantención · ${perTxt}</h3>${rec.length ? `<div style="display:grid;grid-template-columns:130px 1fr;gap:10px;align-items:center">${svgDonut([{n:plan,c:"var(--green)"},{n:noPlan,c:"var(--red)"}], Math.round(plan*100/rec.length)+"%", "preventivo")}<div class="dleg">${leg("var(--green)","Preventivas · <b>"+plan+"</b> ("+Math.round(plan*100/rec.length)+"%)")}${leg("var(--red)","Correctivas · <b>"+noPlan+"</b> ("+Math.round(noPlan*100/rec.length)+"%)")}</div></div>` : `<div class="sm">Sin órdenes en este período.</div>`}</div>
+  </div>
+  <div class="dg c3">
+    <div class="dcard"><h3>Cumplimiento por mes (OTs cerradas a tiempo)</h3>${svgCumpl(meses, META)}<div class="sm" style="display:flex;justify-content:space-between;align-items:center">Barra verde = cumple la meta<button class="btn sm" data-act="meta">Meta ${META}%</button></div></div>
+    <div class="dcard"><h3>OTs por tipo de equipo y prioridad · ${perTxt}</h3>${svgGrupo(porEq, PRI_G, mxG)}<div class="dleg" style="grid-auto-flow:column;justify-content:center;gap:16px">${PRI_G.map(([l,c]) => leg(c,l)).join("")}</div></div>
+    <div class="dcard"><h3>OTs por mes</h3>${svgMeses(meses)}<div class="dleg" style="grid-auto-flow:column;justify-content:center;gap:16px">${leg("var(--blue)","Creadas")}${leg("var(--green)","Cerradas")}</div></div>
+    <div class="dcard"><h3>OTs cerradas por responsable · ${perTxt}</h3>${resp.length ? `<div class="bars">${resp.map(([r,k]) => `<div class="b"><span>${esc(r)}</span><span class="t"><i style="width:${k*100/mxR}%"></i></span><b>${k}</b></div>`).join("")}</div>` : `<div class="sm">Aún no hay OTs cerradas en este período.</div>`}</div>
+    <div class="dcard"><h3>Estado de las OT y prioridad</h3><div class="bars">${eo.map(([l,k]) => `<div class="b"><span>${l}</span><span class="t"><i style="width:${k*100/mxE}%"></i></span><b>${k}</b></div>`).join("")}</div><div class="sm" style="margin-top:4px">Abiertas por prioridad</div><div class="bars">${pr.map(([p,k]) => `<div class="b"><span>${p}</span><span class="t"><i style="width:${k*100/mxP}%"></i></span><b>${k}</b></div>`).join("")}</div></div>
+  </div>
+  <div class="dcard" style="margin-bottom:12px"><h3>Próximas mantenciones (las más cercanas)</h3>
+    ${prox ? `<div style="overflow-x:auto"><table class="dtab"><thead><tr><th>Equipo</th><th>Modelo</th><th>Base</th><th>Tarea</th><th style="text-align:right">Km</th><th>Estado</th></tr></thead><tbody>${prox}</tbody></table></div><div><button class="btn sm" data-act="go" data-tab="tareas">Ver detalle de tareas</button></div>` : `<div class="sm">Sin mantenciones calculadas todavía.</div>`}</div>
+  <div class="dcard"><h3>Requiere atención ${alertas.length?`· ${alertas.length}`:""}</h3>
+    ${alertas.length ? `<ul style="margin:0;padding-left:18px;display:grid;gap:6px">${alertas.join("")}</ul>` : `<div class="sm">Todo al día. Sin equipos detenidos, solicitudes nuevas ni órdenes atrasadas.</div>`}
   </div>`;
 }
 
@@ -1099,15 +1180,18 @@ function render(){
     const ab = D.ots.filter(otAbierta).length;
     document.getElementById("tabs").innerHTML = TABS.map(([k,l]) => `<button class="tab" role="tab" data-act="tab" data-tab="${k}" aria-selected="${S.tab===k}">${l}${k==="tareas"&&ab?` <span class="c">${ab}</span>`:""}${k==="solicitudes"&&D.fallas.some(x=>x.ext&&x.nueva)?` <span class="c">${D.fallas.filter(x=>x.ext&&x.nueva).length}</span>`:""}</button>`).join("");
     document.getElementById("q").style.display = S.tab === "resumen" ? "none" : "";
-    document.querySelectorAll(".wrap").forEach(w => { w.style.maxWidth = (S.tab === "tareas" || S.tab === "medidores") ? "1900px" : ""; });
-    try{ const hd = document.querySelector("header"), br = document.querySelector(".bar"), st = document.documentElement.style;
-      if (hd && hd.offsetHeight) st.setProperty("--hh", hd.offsetHeight + "px"); if (br && br.offsetHeight) st.setProperty("--bh", br.offsetHeight + "px"); }catch(e){}
+    document.querySelectorAll(".wrap").forEach(w => { w.style.maxWidth = (S.tab === "tareas" || S.tab === "medidores") ? "1900px" : S.tab === "resumen" ? "1500px" : ""; });
+    try{ const br = document.querySelector(".bar");   // el alto de la barra fija se mide solo y se mantiene al día
+      if (br && !window.__roBar){ const fija = () => document.documentElement.style.setProperty("--bh", br.offsetHeight + "px"); fija();
+        if (window.ResizeObserver){ window.__roBar = new ResizeObserver(fija); window.__roBar.observe(br); } else window.__roBar = true; }
+    }catch(e){}
     document.getElementById("view").innerHTML = {resumen:vResumen, camiones:vCamiones, tareas:vTareas, medidores:vMedidores, solicitudes:() => vFallas(true), pautas:vPautas, fallas:() => vFallas(false), costos:vCostos}[S.tab]();
   } finally { D = full; }
   revisarAlertasMant();
   document.getElementById("foot").textContent = `Datos compartidos (Google Drive) · ${full.camiones.length} camiones · ${full.ots.length} OTs${S.base ? ` · mostrando ${S.base==="-"?"equipos sin base":S.base}` : ""}${EMAIL?` · ${EMAIL} (${ROL})`:""}${ESTADO?` · ${ESTADO}`:""}`;
   aplicarRol();
 }
+document.addEventListener("change", e => { if (e.target && e.target.id === "per"){ S.per = e.target.value; render(); } });
 document.getElementById("base").addEventListener("change", e => { S.base = e.target.value; guardarUI(); render(); });
 
 /* ===== Alerta de mantenimiento al ingresar km ===== */
@@ -1178,6 +1262,7 @@ document.addEventListener("click", e => {
   else if (a === "new-pauta") fPlan();
   else if (a === "edit-pauta") fPlan(D.pautas.find(p => p.id === id));
   else if (a === "ft-asignar") asignarFracttal();
+  else if (a === "meta"){ const v = prompt("Meta de cumplimiento de OTs a tiempo (%)", D.meta || 80); const n = Number(String(v).replace(",",".")); if (v !== null && n > 0 && n <= 100){ D.meta = Math.round(n); save(); render(); } }
   else if (a === "mecanicos") fMecanicos();
   else if (a === "um-imp") document.getElementById("um").click();
   else if (a === "um-apply") aplicarUM();
