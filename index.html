@@ -157,6 +157,7 @@ dialog .btns{display:flex;gap:8px;justify-content:flex-end;margin-top:8px}
 .enter .bars .t i,.enter .sbar i,.enter .stack i{transform-origin:left center;animation:growx .9s .4s var(--ease) both}
 .enter .msv rect{transform-box:fill-box;transform-origin:50% 100%;animation:growy .8s .45s var(--ease) both}
 .kc.otc{position:relative;cursor:pointer}
+.kc.selc{cursor:pointer}.kc.selc.sel{outline:2px solid var(--accent);outline-offset:-1px;background:linear-gradient(180deg,rgba(20,184,212,.09),transparent 70%),var(--surface);box-shadow:0 0 0 4px rgba(20,184,212,.14),var(--sh2)}
 .kebab{position:absolute;top:8px;right:8px;width:32px;height:32px;border-radius:10px;border:0;background:transparent;display:grid;place-items:center;cursor:pointer;color:var(--muted);transition:background .2s,color .2s}
 .kebab:hover,.kebab[aria-expanded="true"]{background:var(--surface-2);color:var(--navy)}
 .kebab svg{width:20px;height:20px;fill:currentColor}
@@ -571,7 +572,7 @@ function prev(c){
 
 /* ================= Estado de la vista ================= */
 const TABS = [["resumen","Dashboard"],["camiones","Camiones"],["tareas","Detalle de tareas"],["medidores","Medidores"],["solicitudes","Solicitudes"],["pautas","Pautas"]];
-let ESTADO_ANT = null, USUARIO = "", ULTIMO = null, TAB_PREVIA = "", FORZAR_ENTRADA = false;   // ULTIMO: cuándo y quién guardó por última vez los datos (lo informa el servidor)
+let ESTADO_ANT = null, USUARIO = "", ULTIMO = null, TAB_PREVIA = "", FORZAR_ENTRADA = false, PEND_PATS = [];   // ULTIMO: cuándo y quién guardó por última vez los datos (lo informa el servidor)
 let S = {sel:new Set(), tab:"resumen", q:"", base:"", f:{camiones:"todos", medidores:"todos", tareas:"todo", ots:"abiertas", prev:"pendientes"}};
 try{ const u = JSON.parse(localStorage.getItem(KEY+"_ui")||"{}"); if (TABS.some(x=>x[0]===u.tab)) S.tab = u.tab; if (typeof u.base === "string") S.base = u.base; }catch(e){}
 
@@ -915,6 +916,7 @@ function vTareas(){
   const ord = {vencido:0, proximo:1, ok:2, sin:3}, grupos = [];
   raices.sort((a,b) => ord[a.p.st]-ord[b.p.st] || (a.p.kmR??1e9)-(b.p.kmR??1e9)).forEach(x => {
     grupos.push(x); const sm = parDe(x.c); if (sm && esTractoC(x.c) && !esTractoC(sm)) grupos.push({c:sm, p:prev(sm)}); });
+  PEND_PATS = grupos.map(x => x.c.pat);
   const corto = n => n.replace(/^MANTENIMIENTO PROGRAMADO\s*/i,"Programado ").replace(/^MANTENCIÓN\s*/i,"");
   const lbl = {vencido:["Vencido","red"],proximo:["Próximo","amber"],ok:["Al día","green"],sin:["Sin plan","gray"]};
   const cardPrev = ({c,p}) => {
@@ -922,12 +924,11 @@ function vTareas(){
     const arr = !!(trq && esTractoC(trq) && !esTractoC(c));
     const lineas = p.tareas.filter(t => t.st !== "sinreg").sort((a,b) => a.kmR - b.kmR).slice(0,2).map(t => `<div>${esc(corto(t.tarea.nombre))}: ${t.kmR<=0?`pasada por ${fkm(-t.kmR)}`:`faltan ${fkm(t.kmR)}`}</div>`).join("")
       || (p.kmR != null ? `<div>${p.kmR<=0?`Pasado por ${fkm(-p.kmR)}`:`Faltan ${fkm(p.kmR)}`}</div>` : "");
-    return `<div class="kc ${p.st==="vencido"?"flag":p.st==="proximo"?"warn":""}">
+    return `<div class="kc selc ${p.st==="vencido"?"flag":p.st==="proximo"?"warn":""}${S.sel.has(c.pat)?" sel":""}" data-act="sel-card" data-id="${esc(c.pat)}" title="Clic para seleccionar este equipo">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><input type="checkbox" data-act="sel" data-id="${esc(c.pat)}"${S.sel.has(c.pat)?" checked":""} style="width:18px;height:18px"><span class="plate">${esc(c.pat)}</span><small>${esc(c.tipo||"")}</small>${tag(lbl[p.st][0],lbl[p.st][1])}</div>
       ${arr?`<div>${tag("Viene con el "+(trq.tipo==="Camión"?"camión ":"tracto ")+trq.pat,"amber")}</div>`:""}
       <div class="ks" style="display:grid">${lineas}</div>
-      <div class="ks"><span>Km actual ${fkm(c.km)}</span>${trq?`<span><b>${etiquetaPar(c)} ${esc(trq.pat)}</b></span>`:""}</div>
-      <div class="kact">${due.length||arr?`<button class="btn sm pri" data-act="gen-ot" data-id="${esc(c.pat)}">Generar OT</button>`:""}<button class="btn sm" data-act="hecha" data-id="${esc(c.pat)}">Registrar mantención hecha</button></div></div>`;
+      <div class="ks"><span>Km actual ${fkm(c.km)}</span>${trq?`<span><b>${etiquetaPar(c)} ${esc(trq.pat)}</b></span>`:""}</div></div>`;
   };
   const btn = (act, id, txt, cls, v) => `<button class="btn sm ${cls||""}" data-act="${act}" data-id="${id}"${v?` data-v="${v}"`:""}>${txt}</button>`;
   const cardOT = o => {
@@ -949,7 +950,7 @@ function vTareas(){
   const col = (titulo, color, n, body, nota) => `<div class="kcol"><div class="kh" style="--c:${color}">${titulo}<span class="n">${n}</span></div><div class="kb">${body || `<div class="sub" style="padding:8px">Sin elementos</div>`}${nota||""}</div></div>`;
   const barra = S.sel.size ? `<div class="chips" style="justify-content:space-between;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--surface-2)"><b>${S.sel.size} equipo${S.sel.size===1?"":"s"} seleccionado${S.sel.size===1?"":"s"}: ${esc([...S.sel].join(" + "))}</b><span style="display:flex;gap:8px"><button class="btn pri" data-act="gen-sel">Generar una sola OT</button><button class="btn" data-act="sel-clear">Limpiar</button></span></div>` : "";
   const h = `<div class="stk"><div class="chips" style="justify-content:space-between;margin-bottom:6px"><span style="display:flex;gap:8px;flex-wrap:wrap">${[["todo","Todo"],["atrasadas","OTs atrasadas"],["vencido","Vencidos"],["proximo","Próximos"]].map(([k,l]) => `<button class="chip" data-act="chip" data-key="tareas" data-v="${k}" aria-pressed="${f===k}">${l}</button>`).join("")}</span><button class="btn pri" data-act="new-ot">+ Nueva OT</button></div>`
-    + (S.sel.size ? barra : `<div class="sub" style="margin-bottom:2px">Aquí aparecen los tractos pendientes, cada uno con su semirremolque. Marca los equipos que irán juntos y genera una sola OT.</div>`) + `</div>`;
+    + (S.sel.size ? barra : `<div class="sub" style="margin-bottom:2px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">Aquí aparecen los tractos y camiones pendientes con su semi o estanque. <b>Haz clic en los equipos que irán juntos</b> y genera una sola OT.${PEND_PATS.length?`<button class="btn sm" data-act="sel-todos">Seleccionar todos</button>`:""}</div>`) + `</div>`;
   if (!all.length && !D.ots.length) return h + emptyMsg("Agrega camiones para ver sus tareas.", demoBtns);
   return h + `<div class="kan">
     ${col("Tareas pendientes","#9aa5b8",grupos.length, grupos.map(cardPrev).join(""))}
@@ -1555,6 +1556,8 @@ document.addEventListener("click", e => {
   else if (a === "gen-ot" || a === "gen-ot-arr"){ const c = camion(id), q = parDe(c); generarOTs(q ? (esTractoC(c) ? [id, q.pat] : [q.pat, id]) : [id]); }
   else if (a === "sel"){ const c = camion(id); if (b.checked){ S.sel.add(id); const q = parDe(c); if (q) S.sel.add(q.pat); } else S.sel.delete(id); render(); }
   else if (a === "ot-estado"){ const o = byId(D.ots, id); if (o && otAbierta(o)){ o.estado = b.dataset.v; save(); render(); } }
+  else if (a === "sel-card"){ const c = camion(id); if (!c) return; if (S.sel.has(id)) S.sel.delete(id); else { S.sel.add(id); const q = parDe(c); if (q) S.sel.add(q.pat); } render(); }
+  else if (a === "sel-todos"){ PEND_PATS.forEach(p => S.sel.add(p)); render(); }
   else if (a === "gen-sel") generarOTs([...S.sel]);
   else if (a === "sel-clear"){ S.sel.clear(); render(); }
   else if (a === "new-pauta") fPlan();
