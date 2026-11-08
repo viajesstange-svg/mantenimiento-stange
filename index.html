@@ -661,6 +661,8 @@ function fOT(o, pre){
     {k:"estado", l:"Estado", t:"sel", opts:Object.entries(ESTADOS_OT).map(([k,v])=>[k,v[0]]), def:"abierta"},
     {k:"creada", l:"Fecha de creación", t:"date", def:hoy()},
     {k:"vence", l:"Fecha comprometida", t:"date"},
+    {k:"inicio", l:"Inicio del trabajo", t:"datetime-local"},
+    {k:"fin", l:"Fin del trabajo", t:"datetime-local"},
     {k:"costo", l:"Costo (CLP)", t:"number"},
   ], o || pre || {}, v => {
     if (!isNew && otAbierta(o) && v.estado === "cerrada" && hallazgosDe(o).length && !o.hallazgos){ v.estado = o.estado; alert("Esta OT tiene fallos o alertas en su checklist. Ciérrala con el botón Cerrar o desde el Checklist: ahí decides qué hacer con ellos."); }
@@ -669,6 +671,43 @@ function fOT(o, pre){
     if (isNew) D.ots.push({id:nid(), ...v}); else Object.assign(o, v);
     if (abria && v.estado === "cerrada") alCerrar(o);
   });
+}
+/** Crear la OT de una solicitud: pide responsable, prioridad y fecha en vez de crearla directo y sin responsable */
+function opcionesResp(){
+  const m = [...(D.mecanicos || [])].sort((a,b) => a.localeCompare(b)), t = [...(D.terceros || [])].sort((a,b) => a.localeCompare(b));
+  return `<option value="">Selecciona un mecánico o tercero…</option><optgroup label="Mecánicos">${m.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join("")}</optgroup><optgroup label="Terceros (externos)">${t.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join("")}</optgroup><option value="__nuevo">+ Agregar un mecánico…</option><option value="__nuevoT">+ Agregar un tercero…</option>`;
+}
+function engancharRespNuevo(sel){   // permite agregar un mecánico o un tercero nuevo desde la misma lista
+  sel.onchange = () => {
+    const v = sel.value; if (v !== "__nuevo" && v !== "__nuevoT") return;
+    const tercero = v === "__nuevoT", n = (prompt(tercero ? "Nombre del tercero nuevo" : "Nombre del mecánico nuevo") || "").trim();
+    if (n){ const k = tercero ? "terceros" : "mecanicos"; D[k] = D[k] || []; if (!D[k].includes(n)) D[k].push(n);
+      const o = document.createElement("option"); o.value = n; o.textContent = n; sel.insertBefore(o, sel.querySelector('option[value="__nuevo"]')); sel.value = n; }
+    else sel.value = "";
+  };
+}
+function dialogoSolicitudOT(x){
+  const c = camion(x.pat) || {};
+  let pr = PRIO.includes(x.severidad) ? x.severidad : "Media"; if (x.opera === "No" && PRIO.indexOf(pr) > PRIO.indexOf("Alta")) pr = "Alta";
+  dlg.style.width = "min(560px,96vw)";
+  dlg.innerHTML = `<form><h2>Crear OT desde la solicitud</h2>
+    <div style="padding:11px 13px;border:1px solid var(--line);border-radius:14px;margin-bottom:14px;background:var(--surface-2)"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="plate">${esc(x.pat)}</span><b>${esc(c.marca || c.tipo || "")}</b>${c.base ? `<span class="sub">${esc(c.base)}</span>` : ""}${tag(x.severidad || "Media", PRIO_TAG[x.severidad] || "gray")}${x.opera === "No" ? tag("No puede operar","red") : ""}</div><div style="margin:7px 0 3px;font-size:15px">${esc(x.desc)}</div><div class="sub">Reportó: ${esc(x.reportado || "—")} · ${fdate(x.fecha)}</div></div>
+    <label>Responsable<select name="resp" required>${opcionesResp()}</select></label>
+    <label>Prioridad<select name="prio">${PRIO.map(p => `<option value="${p}"${p === pr ? " selected" : ""}>${p}</option>`).join("")}</select></label>
+    <label>Fecha comprometida<input name="vence" type="date" value="${addDays(hoy(), x.opera === "No" ? 1 : 3)}"></label>
+    <div class="btns"><button type="button" class="btn" data-x>Cancelar</button><button class="btn pri">Crear OT</button></div></form>`;
+  const fm = dlg.querySelector("form");
+  fm.querySelector("[data-x]").onclick = () => dlg.close();
+  engancharRespNuevo(fm.elements.resp);
+  fm.onsubmit = e => {
+    e.preventDefault();
+    const resp = fm.elements.resp.value;
+    if (!resp || resp === "__nuevo" || resp === "__nuevoT"){ alert("Selecciona el responsable de la OT."); return; }
+    const oid = nid();
+    D.ots.push({id:oid, pat:x.pat, tipo:"correctivo", desc:"Solicitud: " + x.desc, prioridad:fm.elements.prio.value, resp, estado:"abierta", creada:hoy(), vence:fm.elements.vence.value || addDays(hoy(), 3), cerrada:null, costo:null, notas:`Origen: solicitud${x.reportado ? " de " + x.reportado : ""} del ${fdate(x.fecha)}`, solicitudId:x.id});
+    x.otId = oid; x.nueva = false; save(); dlg.close(); render();
+  };
+  dlg.showModal();
 }
 function fFalla(f){
   if (needTrucks()) return; const isNew = !f;
@@ -842,6 +881,7 @@ function vResumen(){
   const aTiempo = cerr30.filter(o => !o.vence || o.cerrada <= o.vence).length;
   const cerr90 = D.ots.filter(o => o.estado === "cerrada" && o.creada && enPer(o.cerrada));
   const mttr = cerr90.length ? cerr90.reduce((a,o) => a + Math.max(0, diff(o.creada, o.cerrada)), 0) / cerr90.length : null;
+  const conT = cerr90.filter(o => o.inicio && o.fin && durMin(o.inicio, o.fin) >= 0), hProm = conT.length ? conT.reduce((a,o) => a + durMin(o.inicio, o.fin) / 60, 0) / conT.length : null;
   const nuevasObs = D.fallas.filter(x => x.ext && x.nueva && !x.otId);
   const rec = D.ots.filter(o => enPer(o.creada)), plan = rec.filter(o => o.tipo === "preventivo").length, noPlan = rec.length - plan;
   const col = {ok:"var(--green)", proximo:"var(--amber)", vencido:"var(--red)", sin:"var(--muted)"};
@@ -904,7 +944,7 @@ function vResumen(){
     <div class="dcard click" role="button" title="Ver solo esto" data-act="foco" data-id="eq:plan"><h3>Cumplimiento del plan</h3>${svgGauge(cumplPlan, cumplPlan==null?"var(--muted)":cumplPlan>=90?"var(--green)":cumplPlan>=70?"#f59e0b":"var(--red)")}<div class="sm" style="text-align:center">${nOk} de ${conPlan} equipos al día</div></div>
     <div class="dcard click" role="button" title="Ver solo esto" data-act="foco" data-id="ots:atrasadas"><h3>OTs atrasadas</h3>${svgDonut([{n:atras.length,c:"var(--red)"},{n:Math.max(0,abiertas.length-atras.length),c:"var(--accent-2)"}], atras.length, "de "+abiertas.length+" abiertas")}<div class="sm" style="text-align:center">pasaron su fecha comprometida</div></div>
     <div class="dcard click" role="button" title="Ver solo esto" data-act="foco" data-id="ots:atiempo"><h3>OTs a tiempo · ${perTxt}</h3>${svgGauge(pct(aTiempo, cerr30.length), pct(aTiempo,cerr30.length)==null?"var(--muted)":"var(--green)")}<div class="sm" style="text-align:center">${aTiempo} de ${cerr30.length} cerradas a tiempo</div></div>
-    <div class="dcard click" role="button" title="Ver solo esto" data-act="foco" data-id="ots:cerradas" style="text-align:center;align-content:center"><h3>Tiempo medio de reparación</h3><div class="big"${mttr==null?"":` data-count="${Math.round(mttr*10)/10}" data-dec="1"`}>${mttr==null?"—":(Math.round(mttr*10)/10).toString().replace(".",",")}</div><div class="sm">días, de creada a cerrada · ${perTxt}</div></div>
+    <div class="dcard click" role="button" title="Ver solo esto" data-act="foco" data-id="ots:cerradas" style="text-align:center;align-content:center"><h3>Tiempo medio de reparación</h3><div class="big"${mttr==null?"":` data-count="${Math.round(mttr*10)/10}" data-dec="1"`}>${mttr==null?"—":(Math.round(mttr*10)/10).toString().replace(".",",")}</div><div class="sm">días, de creada a cerrada · ${perTxt}</div>${hProm!=null?`<div class="sm">Trabajo efectivo: <b>${(Math.round(hProm*10)/10).toString().replace(".",",")} h</b> en promedio</div>`:""}</div>
   </div>
   <div class="sec">Flota y mantenciones</div>
   <section class="kpis">
@@ -996,7 +1036,7 @@ function vTareas(){
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding-right:34px"><b style="color:var(--blue)">OT #${o.id}</b>${tag(st[0],st[1])}${tag(o.tipo==="preventivo"?"Preventiva":"Correctiva", o.tipo==="preventivo"?"green":"red")}${tag(o.prioridad, PRIO_TAG[o.prioridad]||"gray")}${at?tag("Atrasada","red"):""}</div>
       <div>${otPats(o).map(p => `<span class="plate" style="margin-right:4px">${esc(p)}</span>`).join("")}</div>
       <div style="font-size:14px">${esc(o.desc)}</div>
-      <div class="ks">${o.resp?`<span>👤 ${esc(o.resp)}</span>`:`<span>Sin responsable</span>`}${o.vence&&otAbierta(o)?`<span>Comprometida ${fdate(o.vence)}</span>`:""}${o.cerrada?`<span>Cerrada ${fdate(o.cerrada)}</span>`:""}${o.costo!=null?`<span>${fclp(o.costo)}</span>`:""}${pr.length?`<span>Checklist ${pr.filter(i=>i.res).length}/${pr.length}</span>`:""}${its.some(i=>i.res==="fallo")?tag(its.filter(i=>i.res==="fallo").length+" fallo"+(its.filter(i=>i.res==="fallo").length>1?"s":""),"red"):""}${its.some(i=>i.res==="alerta")?tag(its.filter(i=>i.res==="alerta").length+" alerta"+(its.filter(i=>i.res==="alerta").length>1?"s":""),"amber"):""}${o.hallazgos&&o.hallazgos.otId?`<span>→ OT correctiva #${o.hallazgos.otId}</span>`:""}${o.hallazgos&&o.hallazgos.decision==="sin"?tag("Cerrada sin OT correctiva","red"):""}${o.origenOT?`<span>Origen: OT #${o.origenOT}</span>`:""}</div></div>`;
+      <div class="ks">${o.resp?`<span>👤 ${esc(o.resp)}</span>`:tag("Sin responsable","amber")}${o.vence&&otAbierta(o)?`<span>Comprometida ${fdate(o.vence)}</span>`:""}${o.cerrada?`<span>Cerrada ${fdate(o.cerrada)}</span>`:""}${o.inicio&&o.fin?`<span>⏱ ${durTxt(o.inicio,o.fin)}</span>`:""}${o.costo!=null?`<span>${fclp(o.costo)}</span>`:""}${pr.length?`<span>Checklist ${pr.filter(i=>i.res).length}/${pr.length}</span>`:""}${its.some(i=>i.res==="fallo")?tag(its.filter(i=>i.res==="fallo").length+" fallo"+(its.filter(i=>i.res==="fallo").length>1?"s":""),"red"):""}${its.some(i=>i.res==="alerta")?tag(its.filter(i=>i.res==="alerta").length+" alerta"+(its.filter(i=>i.res==="alerta").length>1?"s":""),"amber"):""}${o.hallazgos&&o.hallazgos.otId?`<span>→ OT correctiva #${o.hallazgos.otId}</span>`:""}${o.hallazgos&&o.hallazgos.decision==="sin"?tag("Cerrada sin OT correctiva","red"):""}${o.origenOT?`<span>Origen: OT #${o.origenOT}</span>`:""}</div></div>`;
   };
   const okOT = o => match(otPats(o).join(" "), o.desc, o.resp) && (f !== "atrasadas" || otAtrasada(o));
   const ots = D.ots.filter(okOT);
@@ -1058,7 +1098,7 @@ function vOTs(){
       <div>${otPats(o).map(p => `<div style="margin-bottom:4px"><span class="plate">${esc(p)}</span></div>`).join("")}<div class="sub">OT #${o.id}</div></div>
       <div class="what"><div class="d">${esc(o.desc)}</div>
         <div class="m">${tag(st[0],st[1])} ${tag(o.tipo==="preventivo"?"Preventiva":"Correctiva", o.tipo==="preventivo"?"green":"red")} ${tag(o.prioridad, PRIO_TAG[o.prioridad]||"gray")}${at?" "+tag("Atrasada","red"):""}
-          ${o.resp?`<span>${esc(o.resp)}</span>`:""}<span>Creada ${fdate(o.creada)}</span>${o.vence?`<span>Comprometida ${fdate(o.vence)}</span>`:""}${o.cerrada?`<span>Cerrada ${fdate(o.cerrada)}</span>`:""}${o.costo!=null?`<span>${fclp(o.costo)}</span>`:""}${o.items?`<span>Checklist ${o.items.filter(i=>i.tipo!=="texto"&&i.res).length}/${o.items.filter(i=>i.tipo!=="texto").length}${o.items.some(i=>i.res==="fallo")?` · ${o.items.filter(i=>i.res==="fallo").length} con falla`:""}</span>`:""}</div></div>
+          ${o.resp?`<span>${esc(o.resp)}</span>`:""}<span>Creada ${fdate(o.creada)}</span>${o.vence?`<span>Comprometida ${fdate(o.vence)}</span>`:""}${o.cerrada?`<span>Cerrada ${fdate(o.cerrada)}</span>`:""}${o.inicio&&o.fin?`<span>⏱ ${durTxt(o.inicio,o.fin)}</span>`:""}${o.costo!=null?`<span>${fclp(o.costo)}</span>`:""}${o.items?`<span>Checklist ${o.items.filter(i=>i.tipo!=="texto"&&i.res).length}/${o.items.filter(i=>i.tipo!=="texto").length}${o.items.some(i=>i.res==="fallo")?` · ${o.items.filter(i=>i.res==="fallo").length} con falla`:""}</span>`:""}</div></div>
       <div class="acts">${otAbierta(o)?`${o.items?`<button class="btn sm" data-act="checklist" data-id="${o.id}">Checklist</button>`:""}<button class="btn sm" data-act="close-ot" data-id="${o.id}">Cerrar</button><button class="btn sm" data-act="edit-ot" data-id="${o.id}">Editar</button><button class="btn sm danger" data-act="del-ot" data-id="${o.id}">Eliminar</button>`:""}</div></div>`;
   }).join("");
 }
@@ -1290,7 +1330,7 @@ tr.f td{background:#fdecec}tr.a td{background:#fff3dc}tr{break-inside:avoid}
 </style></head><body>
 <div class="top"><div class="brand">STANGE<small>Mantenimiento de flota</small></div><div class="ot"><b>Orden de trabajo #${o.id}</b><div><span class="est">${esc(st)}</span> · ${o.tipo==="preventivo"?"Preventiva":"Correctiva"} · Prioridad ${esc(o.prioridad||"—")}</div></div></div>
 <div class="desc">${esc(o.desc)}</div>
-<div class="grid">${dato("Equipos", otPats(o).join(" + "))}${dato("Responsable", o.resp)}${dato("Creada", o.creada ? fdate(o.creada) : "")}${dato("Comprometida", o.vence ? fdate(o.vence) : "")}${dato("Cerrada", o.cerrada ? fdate(o.cerrada) : "")}${dato("Km al generar", !o.equipos && o.kmOT != null ? fkm(o.kmOT) : "")}${dato("Origen", o.origenOT ? "OT #" + o.origenOT : "")}${dato("Costo", o.costo != null ? fclp(o.costo) : "")}</div>
+<div class="grid">${dato("Equipos", otPats(o).join(" + "))}${dato("Responsable", o.resp)}${dato("Creada", o.creada ? fdate(o.creada) : "")}${dato("Comprometida", o.vence ? fdate(o.vence) : "")}${dato("Cerrada", o.cerrada ? fdate(o.cerrada) : "")}${dato("Inicio del trabajo", fmtLocal(o.inicio))}${dato("Fin del trabajo", fmtLocal(o.fin))}${dato("Duración", o.inicio && o.fin ? durTxt(o.inicio, o.fin) : "")}${dato("Km al generar", !o.equipos && o.kmOT != null ? fkm(o.kmOT) : "")}${dato("Origen", o.origenOT ? "OT #" + o.origenOT : "")}${dato("Costo", o.costo != null ? fclp(o.costo) : "")}</div>
 ${hz.length ? `<div class="hz"><b>Hallazgos:</b> ${esc(txtHz(hz))}${o.hallazgos && o.hallazgos.otId ? " · OT correctiva #" + o.hallazgos.otId : ""}${o.hallazgos && o.hallazgos.decision === "sin" ? " · cerrada sin OT correctiva" : ""}</div>` : ""}
 ${its.length ? cuerpo.replace(/^<\/tbody><\/table>/, "") + "</tbody></table>" : '<div class="sub">Esta OT no tiene checklist.</div>'}
 <div class="obs"><span>Observación de la unidad</span>${o.notas ? esc(o.notas).replace(/\n/g, "<br>") : ""}</div>
@@ -1362,7 +1402,7 @@ function verOT(o){
   dlg.style.width = "min(780px,96vw)";
   dlg.innerHTML = `<form><div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap"><h2 style="margin:0">OT #${o.id} · ${esc(otPats(o).join(" + "))}</h2><div style="display:flex;gap:6px;flex-wrap:wrap">${tag(st[0], st[1])}${tag(o.tipo==="preventivo"?"Preventiva":"Correctiva", o.tipo==="preventivo"?"green":"red")}${tag(o.prioridad, PRIO_TAG[o.prioridad]||"gray")}${tag("Solo lectura","gray")}</div></div>
     <div style="font-size:15px;margin:8px 0 12px">${esc(o.desc)}</div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:6px">${dato("Responsable", esc(o.resp||"Sin responsable"))}${dato("Creada", fdate(o.creada))}${dato("Comprometida", o.vence ? fdate(o.vence) : "")}${dato("Cerrada", o.cerrada ? fdate(o.cerrada) : "")}${dato(o.equipos?"Km al generar":"Km al generar", !o.equipos && o.kmOT != null ? fkm(o.kmOT) : "")}${dato("Costo", o.costo != null ? fclp(o.costo) : "")}${dato("Checklist", pr.length ? `${pr.filter(i=>i.res).length}/${pr.length} respondidos` : "")}</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:6px">${dato("Responsable", esc(o.resp||"Sin responsable"))}${dato("Creada", fdate(o.creada))}${dato("Comprometida", o.vence ? fdate(o.vence) : "")}${dato("Cerrada", o.cerrada ? fdate(o.cerrada) : "")}${dato("Inicio del trabajo", fmtLocal(o.inicio))}${dato("Fin del trabajo", fmtLocal(o.fin))}${dato("Duración", o.inicio && o.fin ? durTxt(o.inicio, o.fin) : "")}${dato(o.equipos?"Km al generar":"Km al generar", !o.equipos && o.kmOT != null ? fkm(o.kmOT) : "")}${dato("Costo", o.costo != null ? fclp(o.costo) : "")}${dato("Checklist", pr.length ? `${pr.filter(i=>i.res).length}/${pr.length} respondidos` : "")}</div>
     ${otAbierta(o) ? `<div class="sub" style="margin-top:8px">Esta OT sigue abierta: para trabajarla usa <b>Checklist</b> en su tarjeta.</div>` : ""}
     ${hallazgo}${origen}
     ${its.length ? `<div style="max-height:46vh;overflow:auto;border:1px solid var(--line);border-radius:12px;margin-top:10px">${filas}</div>` : `<div class="sub" style="margin-top:10px">Esta OT no tiene checklist.</div>`}
@@ -1374,16 +1414,46 @@ function verOT(o){
   fm.querySelectorAll("[data-ver]").forEach(b => b.onclick = () => { const x = byId(D.ots, b.dataset.ver); if (x) verOT(x); });
   dlg.showModal();
 }
+/* ===== Inicio y fin del trabajo: fecha y hora como texto local "AAAA-MM-DDTHH:mm" ===== */
+const ahoraLocal = () => new Date().toLocaleString("sv-SE", {timeZone:"America/Santiago"}).slice(0,16).replace(" ", "T");
+const fmtLocal = s => { const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(s || ""); return m ? `${+m[3]}/${+m[2]}/${m[1]} ${m[4]}:${m[5]}` : ""; };
+const durMin = (a, b) => { const x = Date.parse(a), y = Date.parse(b); return isFinite(x) && isFinite(y) ? Math.round((y - x) / 60000) : null; };
+const durTxt = (a, b) => { const m = durMin(a, b); if (m == null) return ""; if (m < 0) return "—"; const d = Math.floor(m / 1440), h = Math.floor(m % 1440 / 60), mi = m % 60;
+  return [d ? d + " d" : "", h ? h + " h" : "", (mi || (!d && !h)) ? mi + " min" : ""].filter(Boolean).join(" "); };
 /* ===== Hallazgos del checklist (alertas y fallos): al cerrar una OT hay que decidir qué hacer ===== */
 const hallazgosDe = o => (o.items || []).filter(it => it.res === "fallo" || it.res === "alerta").map(it => ({it}));
 const nHz = (hz, k) => hz.filter(x => x.it.res === k).length;
 const txtHz = hz => { const f = nHz(hz,"fallo"), a = nHz(hz,"alerta"); return [f ? f + (f===1?" fallo":" fallos") : "", a ? a + (a===1?" alerta":" alertas") : ""].filter(Boolean).join(" y "); };
 /** Único punto por el que se cierra una OT. Si trae alertas o fallos pide decidir; si no, cierra directo. */
-function cerrarOT(o, alTerminar){
-  const fin = () => { o.estado = "cerrada"; o.cerrada = hoy(); alCerrar(o); save(); dlg.close(); if (alTerminar) alTerminar(); render(); };
-  const hz = hallazgosDe(o);
-  if (!hz.length || o.hallazgos){ fin(); return; }
-  dialogoHallazgos(o, hz, fin);
+function cerrarOT(o, alTerminar, desdeChecklist){
+  const fin = () => { o.estado = "cerrada"; o.cerrada = (o.fin || ahoraLocal()).slice(0, 10); alCerrar(o); save(); dlg.close(); if (alTerminar) alTerminar(); render(); };
+  const siguiente = () => { const hz = hallazgosDe(o); if (!hz.length || o.hallazgos){ fin(); return; } dialogoHallazgos(o, hz, fin); };
+  if (o.inicio && o.fin) siguiente(); else dialogoTiempos(o, siguiente, desdeChecklist);
+}
+/** Pide cuándo comenzó y cuándo terminó el trabajo (fecha y hora) antes de cerrar la OT */
+function dialogoTiempos(o, siguiente, desdeChecklist, modo){
+  const rev = modo === "revision", hayHz = !rev && hallazgosDe(o).length && !o.hallazgos;
+  dlg.style.width = "min(520px,96vw)";
+  dlg.innerHTML = `<form><h2>${rev ? "Pasar la OT #" + o.id + " a revisión" : "Cerrar la OT #" + o.id}</h2>
+    <div class="sub" style="margin-bottom:12px">Registra cuándo se realizó el trabajo en ${esc(otPats(o).join(" + "))}${rev ? ". Quedará guardado en la OT." : "."}</div>
+    <label>Inicio del trabajo (fecha y hora)<input type="datetime-local" name="ini" required value="${esc(o.inicio || "")}"></label>
+    <label>Fin del trabajo (fecha y hora)<input type="datetime-local" name="fin" required value="${esc(o.fin || ahoraLocal())}"></label>
+    <div id="dur" style="font-size:14px;font-weight:600;margin:2px 0 6px"></div>
+    <div class="btns"><button type="button" class="btn" data-x>${desdeChecklist ? "Volver al checklist" : "Cancelar"}</button><button class="btn pri">${rev ? "Guardar y pasar a revisión" : hayHz ? "Continuar" : "Cerrar OT"}</button></div></form>`;
+  const fm = dlg.querySelector("form");
+  const calc = () => { const d = fm.querySelector("#dur"), ini = fm.elements.ini.value, fin = fm.elements.fin.value; const m = durMin(ini, fin);
+    d.textContent = m == null ? "" : m < 0 ? "El fin no puede ser anterior al inicio." : "Duración del trabajo: " + durTxt(ini, fin); d.style.color = m != null && m < 0 ? "var(--red)" : "var(--muted)"; };
+  fm.addEventListener("input", calc); calc();
+  fm.querySelector("[data-x]").onclick = () => { if (desdeChecklist){ save(); fChecklist(o); } else dlg.close(); };
+  fm.onsubmit = e => {
+    e.preventDefault();
+    const ini = fm.elements.ini.value, fin = fm.elements.fin.value, m = durMin(ini, fin);
+    if (!ini || !fin){ alert("Indica cuándo comenzó y cuándo terminó el trabajo."); return; }
+    if (m == null || m < 0){ alert("El fin del trabajo no puede ser anterior a su inicio."); return; }
+    if (Date.parse(fin) > Date.now() + 10 * 60000){ alert("El fin del trabajo no puede estar en el futuro."); return; }
+    o.inicio = ini; o.fin = fin; siguiente();
+  };
+  dlg.showModal();
 }
 function dialogoHallazgos(o, hz, fin){
   const f = nHz(hz,"fallo"), mecs = [...(D.mecanicos || [])].sort((a,b) => a.localeCompare(b)), ters = [...(D.terceros || [])].sort((a,b) => a.localeCompare(b));
@@ -1448,9 +1518,10 @@ function fChecklist(o){
     if (b.dataset.ok === "1"){
       const pend = o.items.filter(i => i.tipo !== "texto" && !i.res).length;
       if (pend && !confirm(`Faltan ${pend} ítems sin responder. ¿Cerrar la OT igual?`)) return;
-      cerrarOT(o); return;
+      cerrarOT(o, null, true); return;
     }
-    if (o.estado === "abierta" || o.estado === "proceso") o.estado = "revision";   // «Guardar» deja la OT en revisión
+    if (o.estado === "abierta" || o.estado === "proceso" || (o.estado === "revision" && !(o.inicio && o.fin))){   // «Guardar» deja la OT en revisión, con el inicio y el fin del trabajo
+      dialogoTiempos(o, () => { o.estado = "revision"; save(); dlg.close(); render(); }, true, "revision"); return; }
     save(); dlg.close(); render();
   });
   dlg.showModal();
@@ -1478,7 +1549,7 @@ function vFallas(soli){
     <div><span class="plate">${esc(x.pat)}</span><div class="sub">${fdate(x.fecha)}</div></div>
     <div class="what"><div class="d">${x.nueva?tag("Nueva","blue")+" ":""}${esc(x.desc)}</div>
       <div class="m">${tag(x.severidad, PRIO_TAG[x.severidad]||"gray")} ${x.solucion?tag("Resuelta","green"):tag("Sin resolver","amber")}${x.opera==="No"&&!x.solucion?" "+tag("No puede operar","red"):""}${x.ext&&!camion(x.pat)?" "+tag("Equipo no registrado","gray"):""}${x.reportado?`<span>Reportó: ${esc(x.reportado)}</span>`:""}${x.ext?`<span>Desde app conductor</span>`:""}${x.otId?`<span>OT #${x.otId}</span>`:""}${x.solucion?`<span>Solución: ${esc(x.solucion)}</span>`:""}</div></div>
-    <div class="acts">${x.otId?"":`<button class="btn sm pri" data-act="falla-ot" data-id="${x.id}">Crear OT</button>`}<button class="btn sm" data-act="edit-falla" data-id="${x.id}">Editar</button><button class="btn sm danger" data-act="del-falla" data-id="${x.id}">Eliminar</button></div></div>`).join("");
+    <div class="acts">${x.otId?`<button class="btn sm" data-act="abrir-ot" data-id="${x.otId}">Ver OT #${x.otId}</button>`:`<button class="btn sm pri" data-act="falla-ot" data-id="${x.id}">Crear OT</button>`}<button class="btn sm" data-act="edit-falla" data-id="${x.id}">Editar</button><button class="btn sm danger" data-act="del-falla" data-id="${x.id}">Eliminar</button></div></div>`).join("");
 }
 
 function vCostos(){
@@ -1611,7 +1682,10 @@ document.addEventListener("click", e => {
   else if (a === "checklist"){ const o = byId(D.ots, id); if (o && otAbierta(o)) fChecklist(o); }
   else if (a === "gen-ot" || a === "gen-ot-arr"){ const c = camion(id), q = parDe(c); generarOTs(q ? (esTractoC(c) ? [id, q.pat] : [q.pat, id]) : [id]); }
   else if (a === "sel"){ const c = camion(id); if (b.checked){ S.sel.add(id); const q = parDe(c); if (q) S.sel.add(q.pat); } else S.sel.delete(id); render(); }
-  else if (a === "ot-estado"){ const o = byId(D.ots, id); if (o && otAbierta(o)){ o.estado = b.dataset.v; save(); render(); } }
+  else if (a === "ot-estado"){ const o = byId(D.ots, id); if (o && otAbierta(o)){ const v = b.dataset.v;
+    if (v === "revision"){ dialogoTiempos(o, () => { o.estado = "revision"; save(); dlg.close(); render(); }, false, "revision"); return; }
+    if (v === "proceso" && o.estado === "revision") delete o.fin;   // vuelve a trabajarse: el fin se registrará de nuevo
+    o.estado = v; if (v === "proceso" && !o.inicio) o.inicio = ahoraLocal(); save(); render(); } }
   else if (a === "sel-card"){ const c = camion(id); if (!c) return; if (S.sel.has(id)) S.sel.delete(id); else { S.sel.add(id); const q = parDe(c); if (q) S.sel.add(q.pat); } render(); }
   else if (a === "sel-todos"){ PEND_PATS.forEach(p => S.sel.add(p)); render(); }
   else if (a === "gen-sel") generarOTs([...S.sel]);
@@ -1636,9 +1710,7 @@ document.addEventListener("click", e => {
   else if (a === "del-gasto"){ if (confirm("¿Eliminar este gasto?")){ D.gastos = D.gastos.filter(g => String(g.id) !== id); save(); render(); } }
   else if (a === "sync") sincronizar();
   else if (a === "sync-cfg") fSync();
-  else if (a === "falla-ot"){ const x = byId(D.fallas, id); const oid = nid();
-    D.ots.push({id:oid, pat:x.pat, tipo:"correctivo", desc:"Falla: "+x.desc, prioridad:SEV.includes(x.severidad)?x.severidad:"Media", resp:"", estado:"abierta", creada:hoy(), vence:addDays(hoy(), x.opera==="No"?1:3), cerrada:null, costo:null});
-    x.otId = oid; x.nueva = false; save(); render(); }
+  else if (a === "falla-ot"){ const x = byId(D.fallas, id); if (x && !x.otId) dialogoSolicitudOT(x); }
   else if (a === "clave") fClave();
   else if (a === "salir") salir();
   else if (a === "demo") demo();
