@@ -594,6 +594,7 @@ function form(title, fields, vals, onSave){
     if (f.t === "chk") return `<label class="chk"><input type="checkbox" name="${f.k}"${v?" checked":""}>${esc(f.l)}</label>`;
     let inp;
     if (f.t === "sel") inp = `<select name="${f.k}"${f.req?" required":""}>${f.opts.map(o => { const [val,lab] = Array.isArray(o)?o:[o,o]; return `<option value="${esc(val)}"${String(val)===String(v)?" selected":""}>${esc(lab)}</option>`; }).join("")}</select>`;
+    else if (f.t === "pat") inp = `<input name="${f.k}" list="dl_${f.k}" autocomplete="off" placeholder="Escribe la patente o parte de ella…" value="${esc(v)}" onfocus="this.select()"${f.req?" required":""}><datalist id="dl_${f.k}">${D.camiones.slice().sort((a,b) => String(a.pat).localeCompare(String(b.pat), "es", {numeric:true})).map(c => `<option value="${esc(c.pat)}">${esc([c.tipo, c.marca, c.base].filter(Boolean).join(" · "))}</option>`).join("")}</datalist><span class="sub" style="display:block;margin-top:3px">Puedes escribir varios dígitos; la lista se filtra mientras escribes.</span>`;
     else if (f.t === "area") inp = `<textarea name="${f.k}" rows="${f.rows||3}"${f.req?" required":""}>${esc(v)}</textarea>`;
     else inp = `<input name="${f.k}" type="${f.t||"text"}" value="${esc(v)}"${f.req?" required":""}${f.t==="number"?' step="any" min="0"':""}>`;
     return `<label>${esc(f.l)}${inp}</label>`;
@@ -603,6 +604,12 @@ function form(title, fields, vals, onSave){
   fm.onsubmit = e => {
     e.preventDefault();
     const out = {};
+    for (const f of fields.filter(f => f.t === "pat")){
+      const el = fm.elements[f.k], q = (el.value || "").toUpperCase().replace(/\s+/g, "");
+      const c = camion(q) || (D.camiones.filter(k => String(k.pat).toUpperCase().includes(q)).length === 1 ? D.camiones.find(k => String(k.pat).toUpperCase().includes(q)) : null);
+      if (!c){ alert("No encuentro ese equipo. Escribe la patente y elígela de la lista."); el.focus(); return; }
+      el.value = c.pat;
+    }
     fields.forEach(f => {
       const el = fm.elements[f.k];
       out[f.k] = f.t === "chk" ? el.checked : f.t === "number" ? num(el.value) : (el.value || "").trim();
@@ -653,7 +660,7 @@ function fMecanicos(){
 function fOT(o, pre){
   if (needTrucks()) return; const isNew = !o;
   form(isNew ? "Nueva orden de trabajo" : "Orden #"+o.id, [
-    {k:"pat", l:"Camión", t:"sel", opts:patOpts(), req:1},
+    {k:"pat", l:"Equipo (patente)", t:"pat", req:1},
     {k:"tipo", l:"Tipo", t:"sel", opts:[["preventivo","Preventivo (planificada)"],["correctivo","Correctivo (no planificada)"]]},
     {k:"desc", l:"Descripción", t:"area", req:1},
     {k:"prioridad", l:"Prioridad", t:"sel", opts:PRIO, def:"Media"},
@@ -732,7 +739,7 @@ function fGasto(g){
   if (needTrucks()) return; const isNew = !g;
   form(isNew ? "Nuevo gasto" : "Editar gasto", [
     {k:"fecha", l:"Fecha", t:"date", def:hoy(), req:1},
-    {k:"pat", l:"Camión", t:"sel", opts:patOpts(), req:1},
+    {k:"pat", l:"Equipo (patente)", t:"pat", req:1},
     {k:"concepto", l:"Concepto (repuesto, servicio…)", req:1},
     {k:"monto", l:"Monto (CLP)", t:"number", req:1},
   ], g || {}, v => { if (isNew) D.gastos.push({id:nid(), ...v}); else Object.assign(g, v); });
